@@ -1,0 +1,3 @@
+[submodule "lib-v370"]
+	path = lib-v370
+	url = ../lib-v370.git

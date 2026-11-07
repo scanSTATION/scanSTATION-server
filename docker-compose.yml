@@ -1,0 +1,55 @@
+# docker-compose.yml — scanSTATION
+#
+# USB access without a fixed device path: the scanner gets a new device
+# number at every power-on or replug, so the containers see the live
+# /dev/bus/usb tree and may open USB devices only (character major 189).
+# The drivers find their scanner by USB ID (V370: 04b8:014a) and reconnect after
+# it was switched off. No privileged mode, no SCANNER_USB_DEVICE.
+#
+# Build (drivers + their verified firmware): scripts/build-image.sh [--drivers "v370"]
+#
+# Usage:
+#   docker compose up -d server           # REST API on :8080 + button scanning
+#   docker compose run --rm scan --list
+#   docker compose run --rm scan --dpi 300 --size a4
+#   docker compose run --rm scan --dpi 600 --format pdf
+#
+# Run either `server` or `scan`, not both: the server reserves the scanner.
+#
+# USB character devices (major 189), read/write/mknod.
+x-usb-rules: &usb-rules
+  - "c 189:* rmw"
+
+services:
+  scan:
+    image: ${SCANSTATION_IMAGE:-scanstation:latest}
+    build:
+      context: .
+      target: runtime
+    container_name: scanstation-cli
+    device_cgroup_rules: *usb-rules
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      # Scanned images are saved here (inspect from the host)
+      - ./data:/output
+    command: ["--dpi", "300", "--size", "a4", "--color", "rgb", "--format", "jpeg"]
+
+  server:
+    image: ${SCANSTATION_IMAGE:-scanstation:latest}
+    build:
+      context: .
+      target: runtime
+    container_name: scanstation-server
+    restart: unless-stopped
+    entrypoint: ["scanstation-server"]
+    ports:
+      - "8080:8080"
+    device_cgroup_rules: *usb-rules
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./data:/output
+      # Button scans (default target ~/Documents) land in ./data as well.
+      - ./data:/home/scan/Documents
+      # Button configuration (created with defaults on first start).
+      - ./config:/home/scan/.config/scanstation
+    command: ["--addr", ":8080", "-o", "/output"]

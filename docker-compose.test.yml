@@ -1,0 +1,75 @@
+# docker-compose.test.yml — test environments (no scanner, no manufacturer
+# files, no recordings needed)
+#
+#   docker compose -f docker-compose.test.yml run --rm tests     # integration tests
+#   docker compose -f docker-compose.test.yml run --rm unit      # unit tests with -race
+#   docker compose -f docker-compose.test.yml down -v
+#
+#   `server` is the real scanstation-server with the vendor app replaced by
+#   lib-v370's vendorapp-fake; `tests` drives it over HTTP and runs the CLI
+#   and a server against lib-v370's synthetic V370.
+#
+# Image test (profile image): the operator image built by
+# scripts/build-image.sh, run against the synthetic V370 while uploading the
+# image's own firmware file. Run it with scripts/test-image.sh.
+#
+# Own project name: the test `server` must never replace the operator's
+# `server` from docker-compose.yml (same directory, same service name).
+name: scanstation-test
+
+services:
+  server:
+    build:
+      context: .
+      target: testsim
+      args:
+        DRIVERS: "v370 epsonscan2"
+    environment:
+      VENDORAPP_FAKE_CONTROL: /shared/fake-control.json
+      VENDORAPP_FAKE_LOG: /shared/fake-log.jsonl
+    volumes:
+      # Ephemeral test scratch (control file + invocation log) shared with
+      # the tests container; not persistent data, so a named volume is fine.
+      - testshared:/shared
+
+  tests:
+    build:
+      context: .
+      target: test
+      args:
+        DRIVERS: "v370 epsonscan2"
+    depends_on:
+      - server
+    environment:
+      SCAN_API_URL: http://server:8080
+      FAKE_CONTROL_FILE: /shared/fake-control.json
+      FAKE_LOG_FILE: /shared/fake-log.jsonl
+    volumes:
+      - testshared:/shared
+    command: ["go", "test", "-tags", "integration", "-count=1", "-v", "./integration/"]
+
+  unit:
+    build:
+      context: .
+      target: test
+      args:
+        DRIVERS: "v370 epsonscan2"
+
+  image:
+    profiles: ["image"]
+    image: ${IMAGE_TEST_TAG:-scanstation:latest}
+    user: "${IMAGE_TEST_UID:-1000}:${IMAGE_TEST_GID:-1000}"
+    entrypoint: ["scanstation-server"]
+    command: ["--addr", ":8080", "-o", "/output", "--driver", "v370",
+              "--v370-simulate", "synthetic", "--v370-firmware", "/home/scan/firmware/esfwdd.bin",
+              "--v370-simulate-buttons", "${IMAGE_TEST_BUTTONS:-pdf}", "--button-interval", "100ms"]
+    ports:
+      - "127.0.0.1:${IMAGE_TEST_PORT:-18080}:8080"
+    volumes:
+      # Test output and config live in a host directory (bind mounts).
+      - ${IMAGE_TEST_DIR:-./tmp/image-test}/data:/output
+      - ${IMAGE_TEST_DIR:-./tmp/image-test}/data:/home/scan/Documents
+      - ${IMAGE_TEST_DIR:-./tmp/image-test}/config:/home/scan/.config/scanstation
+
+volumes:
+  testshared:

@@ -1,0 +1,7 @@
+# build output
+/bin/
+
+# runtime data of docker compose (bind mounts)
+/data/
+/config/
+/tmp/
