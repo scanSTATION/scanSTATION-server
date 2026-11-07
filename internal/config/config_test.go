@@ -78,3 +78,48 @@ func TestJPEGInPDF(t *testing.T) {
 		t.Fatalf("%+v %v", req, err)
 	}
 }
+
+func load(t *testing.T, js string) (Config, error) {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(p, []byte(js), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Load(p)
+}
+
+func TestPostprocessingConfig(t *testing.T) {
+	// Without a postprocessing section: crop to the requested size.
+	c, err := load(t, `{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4"}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := c.Pipeline(); err != nil || strings.Join(p.Names(), ",") != "crop" {
+		t.Fatalf("default pipeline %v %v", p, err)
+	}
+	// "steps": [] keeps scans as scanned; a button may override.
+	c, err = load(t, `{"postprocessing":{"steps":[]},"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4",
+		"postprocessing":{"keep_original":true,"steps":[{"step":"crop","mode":"nominal"}]}}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := c.Pipeline(); !p.Empty() {
+		t.Fatal("steps [] not as scanned")
+	}
+	if p, _ := c.ButtonPipeline(ButtonPDF); p.Empty() || !p.KeepOriginal {
+		t.Fatalf("button override %+v", p)
+	}
+	if p, _ := c.ButtonPipeline(ButtonEmail); !p.Empty() {
+		t.Fatal("button without override must use the server's")
+	}
+	for _, bad := range []string{
+		`{"postprocessing":{"steps":[{"step":"sharpen"}]},"buttons":{}}`,
+		`{"postprocessing":{"steps":[{"step":"crop","mode":"true_size"}]},"buttons":{}}`,
+		`{"postprocessing":{"steps":[{"step":"crop","angle":3}]},"buttons":{}}`,
+		`{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4","postprocessing":{"steps":[{}]}}}}`,
+	} {
+		if _, err := load(t, bad); err == nil {
+			t.Errorf("accepted: %s", bad)
+		}
+	}
+}

@@ -49,6 +49,42 @@ docker compose run --rm scan --dpi 300 --format png   # one-off scan
 - Hand out this repository (the build kit), not a built image: an image
   contains the manufacturer's firmware.
 
+## Postprocessing (server)
+
+Scans from `scanstation-server` (REST API and buttons) pass through a
+pipeline of postprocessing steps before they are stored. The JSON file
+next to each scan records every step and its result.
+
+| Step | Effect |
+|---|---|
+| `crop` (`"mode": "nominal"`, default) | exactly the requested size at the nominal resolution — A4 at 300 dpi → 2480 × 3508 px, PDF page 210 × 297 mm — cut from the first scanned pixel (the corner side of the glass); pixels unchanged, a missing row is filled with white |
+
+Configured in `config.json` (default shown); a button can override it
+with its own `postprocessing`, an API request with
+`"postprocessing": "none"` (as scanned) or `"default"`:
+
+```json
+"postprocessing": {
+  "keep_original": false,
+  "steps": [ { "step": "crop", "mode": "nominal" } ]
+}
+```
+
+- `"steps": []` stores scans exactly as scanned (full scanned width).
+- `"keep_original": true` also stores the unprocessed scan as
+  `<name>-original.<ext>` (multi-page: `<prefix>-original.pdf`).
+- The raw format and the epsonscan2 driver (whose files are already cropped
+  by the vendor app) are not postprocessed; the API response lists the steps
+  applied (`"postprocessing": ["crop"]`).
+- The CLI (`scanstation`) stores scans as scanned, except button scans in
+  `--watch` mode, which follow the configuration.
+
+```mermaid
+flowchart LR
+  D[driver: decoded image] --> C[crop] --> N[next steps …] --> E[PNG / JPEG / PDF + JSON]
+  D -. keep_original .-> O[name-original.ext]
+```
+
 ## Scan on button press
 
 `scanstation-server` (and `scanstation --watch`) watch the panel buttons and
@@ -81,8 +117,9 @@ prefixed with the driver name (`--v370-firmware`, `--epsonscan2-native`, …);
 `--help` lists them.
 
 V370 (`v370` driver) resolutions are real optical ones only: A4 colour at
-100/200/300/600 dpi, A5 at 1200 dpi, plus small recorded areas. Output is
-uncropped and untouched (PNG, JPEG, lossless PDF, raw) with a JSON sidecar.
+100/200/300/600 dpi, A5 at 1200 dpi, plus small recorded areas. CLI output
+is uncropped and untouched (PNG, JPEG, lossless PDF, raw) with a JSON
+sidecar; the server crops to the requested size (see Postprocessing).
 
 ## REST API (`scanstation-server`)
 
@@ -104,7 +141,7 @@ scanstation-server --addr :8080 -o ~/scans          # same driver flags as the C
 | `GET /api/files/{filename}` | download a result (confined to the output directory) |
 
 Scan body (all fields optional):
-`{"dpi":300,"format":"jpeg","color":"rgb","size":"a4","width_mm":210,"height_mm":297,"quality":85,"prefix":"scan"}`.
+`{"dpi":300,"format":"jpeg","color":"rgb","size":"a4","width_mm":210,"height_mm":297,"quality":85,"prefix":"scan","postprocessing":"default"}`.
 Invalid values are rejected with **400** before the scanner is touched.
 Scanner access is serialised; a scan is not aborted when the client
 disconnects and is limited to 10 minutes.
@@ -151,8 +188,9 @@ internal/driver/           driver interface, registry, auto chain
 internal/drivers/          build-tag selection; v370/, vendorapp/ adapters
 internal/scan/             driver-neutral scan request
 internal/api/              REST handlers, multi-page sessions
+internal/postprocess/      postprocessing pipeline and steps (crop)
 internal/buttons/          button → action
-internal/config/           button configuration file
+internal/config/           configuration file (postprocessing, buttons)
 internal/files/, pdfutil/  moving results, pdfunite
 integration/               integration tests (tag integration)
 lib-v370/                  V370 driver library (submodule)

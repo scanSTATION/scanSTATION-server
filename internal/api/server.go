@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/scanSTATION/scanSTATION-server/internal/driver"
+	"github.com/scanSTATION/scanSTATION-server/internal/postprocess"
 	"github.com/scanSTATION/scanSTATION-server/internal/scan"
 )
 
@@ -19,6 +20,7 @@ type Server struct {
 	sessions  *SessionStore
 	scanMu    sync.Mutex // serializes scanner access (USB exclusivity)
 	mux       *http.ServeMux
+	post      *postprocess.Pipeline // default postprocessing of API scans
 }
 
 // NewServer creates a new API server that scans with b and stores results
@@ -29,8 +31,31 @@ func NewServer(b driver.Backend, outputDir string) *Server {
 		outputDir: outputDir,
 		sessions:  NewSessionStore(),
 	}
+	s.post, _ = postprocess.New(postprocess.Default())
 	s.mux = s.buildRouter()
 	return s
+}
+
+// SetPostprocessing sets the default postprocessing of API scans (nil: as
+// scanned).
+func (s *Server) SetPostprocessing(p *postprocess.Pipeline) { s.post = p }
+
+// request turns API parameters into a scan request with its
+// postprocessing.
+func (s *Server) request(p ScanParams) (scan.ScanRequest, error) {
+	req, err := parseScanParams(p)
+	if err != nil {
+		return req, err
+	}
+	switch p.Postprocessing {
+	case "", "default":
+		req.Post = s.post
+	case "none":
+		req.Post = nil
+	default:
+		return req, fmt.Errorf("unknown postprocessing %q (use: default, none)", p.Postprocessing)
+	}
+	return req, nil
 }
 
 // Handler returns the http.Handler for the server (for use with http.Serve).

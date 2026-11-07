@@ -53,6 +53,9 @@ type Result struct {
 	Path    string   // image file
 	Extra   []string // companion files
 	Backend string   // driver that actually scanned
+	// Postprocessed lists the postprocessing steps applied (empty: the
+	// file is as scanned, or the driver cannot postprocess).
+	Postprocessed []string
 }
 
 // Files returns the image and all companion files.

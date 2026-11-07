@@ -1,5 +1,5 @@
-// Package config loads the user configuration (JSON) — currently what the
-// scanner's panel buttons do.
+// Package config loads the user configuration (JSON): the server's
+// postprocessing and what the scanner's panel buttons do.
 //
 // Default location: $XDG_CONFIG_HOME/scanstation/config.json (usually
 // ~/.config/scanstation/config.json). A missing file is created with the
@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/scanSTATION/scanSTATION-server/internal/postprocess"
 	"github.com/scanSTATION/scanSTATION-server/internal/scan"
 )
 
@@ -44,17 +45,40 @@ type ButtonAction struct {
 	HeightMM  float64 `json:"height_mm,omitempty"`  // size user
 	OutputDir string  `json:"output_dir,omitempty"` // "~" allowed
 	Prefix    string  `json:"prefix,omitempty"`     // "{datetime}" → 20261107-143012
+	// Postprocessing overrides the server's postprocessing for this button.
+	Postprocessing *postprocess.Config `json:"postprocessing,omitempty"`
 }
 
 // Config is the whole file.
 type Config struct {
-	Buttons map[string]ButtonAction `json:"buttons"`
+	// Postprocessing applies to every server scan (REST API and buttons);
+	// missing: crop to the requested size (postprocess.Default).
+	Postprocessing *postprocess.Config     `json:"postprocessing,omitempty"`
+	Buttons        map[string]ButtonAction `json:"buttons"`
+}
+
+// Pipeline returns the server's postprocessing.
+func (c Config) Pipeline() (*postprocess.Pipeline, error) {
+	if c.Postprocessing == nil {
+		return postprocess.New(postprocess.Default())
+	}
+	return postprocess.New(*c.Postprocessing)
+}
+
+// ButtonPipeline returns the postprocessing for a button: its own, or the
+// server's.
+func (c Config) ButtonPipeline(button string) (*postprocess.Pipeline, error) {
+	if a, ok := c.Buttons[button]; ok && a.Postprocessing != nil {
+		return postprocess.New(*a.Postprocessing)
+	}
+	return c.Pipeline()
 }
 
 // Default returns the default configuration: PDF → lossless PDF, 300 dpi,
 // A4, into ~/Documents; Email and Printer do nothing yet.
 func Default() Config {
-	return Config{Buttons: map[string]ButtonAction{
+	pp := postprocess.Default()
+	return Config{Postprocessing: &pp, Buttons: map[string]ButtonAction{
 		ButtonPDF: {Action: ActionScan, Format: "pdf", PDFImage: "lossless", DPI: 300, Size: "a4",
 			OutputDir: "~/Documents", Prefix: "scan_{datetime}"},
 		ButtonEmail:   {Action: ActionNone},
@@ -114,8 +138,11 @@ func Save(path string, c Config) error {
 	return os.WriteFile(path, append(b, '\n'), 0o600)
 }
 
-// Validate checks every button entry.
+// Validate checks the postprocessing and every button entry.
 func (c Config) Validate() error {
+	if _, err := c.Pipeline(); err != nil {
+		return err
+	}
 	for name, a := range c.Buttons {
 		switch name {
 		case ButtonPDF, ButtonEmail, ButtonPrinter:
@@ -132,6 +159,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("button %s: %w", name, err)
 		}
 		if _, err := a.Dir(); err != nil {
+			return fmt.Errorf("button %s: %w", name, err)
+		}
+		if _, err := c.ButtonPipeline(name); err != nil {
 			return fmt.Errorf("button %s: %w", name, err)
 		}
 	}

@@ -38,7 +38,14 @@ func waitForPDF(t *testing.T, dir string, timeout time.Duration) string {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if m, _ := filepath.Glob(filepath.Join(dir, "btn_*.pdf")); len(m) == 1 {
+		var m []string
+		all, _ := filepath.Glob(filepath.Join(dir, "btn_*.pdf"))
+		for _, f := range all {
+			if !strings.HasSuffix(f, "-original.pdf") {
+				m = append(m, f)
+			}
+		}
+		if len(m) == 1 {
 			if _, err := os.Stat(strings.TrimSuffix(m[0], ".pdf") + ".json"); err == nil {
 				return m[0]
 			}
@@ -96,6 +103,14 @@ func TestWatchCLIButtons(t *testing.T) {
 func TestServerButtons(t *testing.T) {
 	out := t.TempDir()
 	cfg := writeButtonConfig(t, out)
+	// The PDF button keeps the original next to the cropped scan.
+	var c map[string]any
+	b, _ := os.ReadFile(cfg)
+	json.Unmarshal(b, &c)
+	c["buttons"].(map[string]any)["pdf"].(map[string]any)["postprocessing"] = map[string]any{
+		"keep_original": true, "steps": []any{map[string]any{"step": "crop"}}}
+	b, _ = json.Marshal(c)
+	os.WriteFile(cfg, b, 0o600)
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := ln.Addr().String()
 	ln.Close()
@@ -116,13 +131,23 @@ func TestServerButtons(t *testing.T) {
 	if err := waitHealthy(base, 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	checkLosslessPDF(t, waitForPDF(t, out, 60*time.Second))
+	pdf := waitForPDF(t, out, 60*time.Second)
+	checkLosslessPDF(t, pdf)
+	// Cropped to A4 at 100 dpi; the original is kept.
+	side, err := os.ReadFile(strings.TrimSuffix(pdf, ".pdf") + ".json")
+	if err != nil || !bytes.Contains(side, []byte(`"width_px": 827`)) || !bytes.Contains(side, []byte(`"step": "crop"`)) ||
+		!bytes.Contains(side, []byte(`-original.pdf"`)) {
+		t.Fatalf("sidecar %s %v", side, err)
+	}
+	if _, err := os.Stat(strings.TrimSuffix(pdf, ".pdf") + "-original.pdf"); err != nil {
+		t.Fatal(err)
+	}
 	resp, err := http.Get(base + "/api/status")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("status after button scan: %v %v\n%s", resp, err, log.String())
 	}
 	resp.Body.Close()
-	if !strings.Contains(log.String(), "Watching scanner buttons") {
+	if !strings.Contains(log.String(), "Watching scanner buttons") || !strings.Contains(log.String(), "Postprocessing: crop") {
 		t.Errorf("server log:\n%s", log.String())
 	}
 }

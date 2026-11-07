@@ -328,3 +328,25 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatal("session still found after delete")
 	}
 }
+
+func TestRequestPostprocessing(t *testing.T) {
+	s := NewServer(noScanner{}, t.TempDir())
+	p := DefaultScanParams()
+	req, err := s.request(p)
+	if err != nil || strings.Join(req.Post.Names(), ",") != "crop" {
+		t.Fatalf("default: %v %v", req.Post, err)
+	}
+	p.Postprocessing = "none"
+	if req, err = s.request(p); err != nil || !req.Post.Empty() {
+		t.Fatalf("none: %v %v", req.Post, err)
+	}
+	p.Postprocessing = "default"
+	s.SetPostprocessing(nil) // server configured "as scanned"
+	if req, err = s.request(p); err != nil || !req.Post.Empty() {
+		t.Fatalf("server as scanned: %v %v", req.Post, err)
+	}
+	p.Postprocessing = "crop"
+	if _, err = s.request(p); err == nil {
+		t.Fatal("unknown postprocessing accepted")
+	}
+}

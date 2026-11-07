@@ -13,6 +13,7 @@ import (
 	"github.com/scanSTATION/scanSTATION-server/internal/config"
 	"github.com/scanSTATION/scanSTATION-server/internal/driver"
 	"github.com/scanSTATION/scanSTATION-server/internal/files"
+	"github.com/scanSTATION/scanSTATION-server/internal/postprocess"
 	"github.com/scanSTATION/scanSTATION-server/internal/scan"
 )
 
@@ -52,7 +53,13 @@ func Handler(cfg config.Config, scanFn ScanFunc, log *slog.Logger, notify func(E
 			return
 		}
 		ev.Action = config.ActionScan
-		ev.Files, ev.Backend, ev.Err = run(ctx, a, scanFn)
+		post, err := cfg.ButtonPipeline(string(b))
+		if err != nil { // validated at load; defensive
+			ev.Err = err
+			log.Error("button scan failed", "button", string(b), "err", err)
+			return
+		}
+		ev.Files, ev.Backend, ev.Err = run(ctx, a, post, scanFn)
 		if ev.Err != nil {
 			log.Error("button scan failed", "button", string(b), "err", ev.Err)
 			return
@@ -61,11 +68,12 @@ func Handler(cfg config.Config, scanFn ScanFunc, log *slog.Logger, notify func(E
 	}
 }
 
-func run(ctx context.Context, a config.ButtonAction, scanFn ScanFunc) ([]string, string, error) {
+func run(ctx context.Context, a config.ButtonAction, post *postprocess.Pipeline, scanFn ScanFunc) ([]string, string, error) {
 	req, err := a.Request(time.Now())
 	if err != nil {
 		return nil, "", err
 	}
+	req.Post = post
 	dir, err := a.Dir()
 	if err != nil {
 		return nil, "", err

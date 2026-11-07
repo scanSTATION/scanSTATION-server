@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	"github.com/scanSTATION/lib-v370/usb/usbfs"
 	"github.com/scanSTATION/lib-v370/v370"
 	"github.com/scanSTATION/scanSTATION-server/internal/driver"
+	"github.com/scanSTATION/scanSTATION-server/internal/postprocess"
 	"github.com/scanSTATION/scanSTATION-server/internal/scan"
 )
 
@@ -368,11 +370,25 @@ func (d *Direct) Scan(ctx context.Context, req scan.ScanRequest) (driver.Result,
 	if err != nil {
 		return driver.Result{}, err
 	}
-	files, err := output.Write(filepath.Join(work, req.FileNamePrefix), sc.Profile, sc.Raw,
-		output.Options{Format: format, Quality: req.JpegQuality, KeepRaw: d.KeepRaw, PDFLossless: req.PDFLossless},
+	opts := output.Options{Format: format, Quality: req.JpegQuality, KeepRaw: d.KeepRaw, PDFLossless: req.PDFLossless}
+	var applied []string
+	if !req.Post.Empty() && format != output.Raw {
+		wmm, hmm, err := req.AreaMM()
+		if err != nil {
+			return driver.Result{}, err
+		}
+		opts.KeepOriginal = req.Post.KeepOriginal
+		opts.Transform = func(img *image.RGBA, dpi int) (*image.RGBA, any, error) {
+			// Image (0, 0) is the first scanned pixel at the glass corner
+			// (lib-v370 docs/protocol.md, scan origin).
+			return req.Post.Run(img, postprocess.Context{DPI: dpi, AreaMM: [2]float64{wmm, hmm}})
+		}
+		applied = req.Post.Names()
+	}
+	files, err := output.Write(filepath.Join(work, req.FileNamePrefix), sc.Profile, sc.Raw, opts,
 		output.Meta{Identity: identity, Time: sc.Started.UTC(), Seconds: sc.Duration.Seconds()})
 	if err != nil {
 		return driver.Result{}, err
 	}
-	return driver.Result{Path: files[0], Extra: files[1:], Backend: Name}, nil
+	return driver.Result{Path: files[0], Extra: files[1:], Backend: Name, Postprocessed: applied}, nil
 }

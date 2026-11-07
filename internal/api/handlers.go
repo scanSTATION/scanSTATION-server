@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/scanSTATION/scanSTATION-server/internal/driver"
@@ -96,7 +97,7 @@ func (s *Server) singleScan(w http.ResponseWriter, r *http.Request) {
 	}
 	params.ApplyDefaults()
 
-	req, err := parseScanParams(params)
+	req, err := s.request(params)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -119,11 +120,12 @@ func (s *Server) singleScan(w http.ResponseWriter, r *http.Request) {
 
 	filename := filepath.Base(finalPath)
 	writeJSON(w, http.StatusOK, ScanResponse{
-		File:     finalPath,
-		Filename: filename,
-		Download: downloadURL(filename),
-		Message:  fmt.Sprintf("Scanned at %d DPI, %s, %s, quality %d", params.DPI, params.Size, params.Color, params.Quality),
-		Backend:  res.Backend,
+		File:           finalPath,
+		Filename:       filename,
+		Download:       downloadURL(filename),
+		Message:        fmt.Sprintf("Scanned at %d DPI, %s, %s, quality %d", params.DPI, params.Size, params.Color, params.Quality),
+		Backend:        res.Backend,
+		Postprocessing: append([]string{}, res.Postprocessed...),
 	})
 }
 
@@ -148,7 +150,7 @@ func (s *Server) multiStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := parseScanParams(params)
+	req, err := s.request(params)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -210,7 +212,7 @@ func (s *Server) multiNext(w http.ResponseWriter, r *http.Request) {
 	pageNum := len(sess.PagePDFs) + 1
 	sess.Status = StatusScanning
 
-	req, err := parseScanParams(sess.Params)
+	req, err := s.request(sess.Params)
 	if err != nil {
 		sess.Status = StatusError
 		sess.Error = err.Error()
@@ -276,6 +278,22 @@ func (s *Server) multiFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Originals of postprocessed pages (keep_original) become one PDF too.
+	var originals []string
+	for _, f := range sess.PageExtras {
+		if strings.HasSuffix(f, "-original.pdf") {
+			originals = append(originals, f)
+		}
+	}
+	if len(originals) > 0 {
+		if err := pdfutil.CombinePDFs(originals, filepath.Join(s.outputDir, sess.Params.Prefix+"-original.pdf")); err != nil {
+			sess.Status = StatusError
+			sess.Error = err.Error()
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("combining original PDFs: %v", err))
+			return
+		}
+	}
+
 	// Clean up individual page PDFs and their metadata.
 	for _, f := range append(sess.PagePDFs, sess.PageExtras...) {
 		os.Remove(f)
@@ -331,6 +349,22 @@ func (s *Server) multiCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess.Lock()
+	// Originals of postprocessed pages (keep_original) become one PDF too.
+	var originals []string
+	for _, f := range sess.PageExtras {
+		if strings.HasSuffix(f, "-original.pdf") {
+			originals = append(originals, f)
+		}
+	}
+	if len(originals) > 0 {
+		if err := pdfutil.CombinePDFs(originals, filepath.Join(s.outputDir, sess.Params.Prefix+"-original.pdf")); err != nil {
+			sess.Status = StatusError
+			sess.Error = err.Error()
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("combining original PDFs: %v", err))
+			return
+		}
+	}
+
 	// Clean up individual page PDFs and their metadata.
 	for _, f := range append(sess.PagePDFs, sess.PageExtras...) {
 		os.Remove(f)

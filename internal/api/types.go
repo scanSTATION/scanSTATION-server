@@ -17,6 +17,9 @@ type ScanParams struct {
 	HeightMM float64 `json:"height_mm,omitempty"` // only when size=user
 	Quality  int     `json:"quality"`             // JPEG quality 1–100
 	Prefix   string  `json:"prefix"`              // filename prefix
+	// Postprocessing: "default" (the server's configuration) or "none"
+	// (keep the scan as scanned).
+	Postprocessing string `json:"postprocessing,omitempty"`
 }
 
 // DefaultScanParams returns sensible defaults matching the CLI defaults.
@@ -68,6 +71,8 @@ type ScanResponse struct {
 	Download string `json:"download_url"`      // relative URL for download
 	Message  string `json:"message,omitempty"` // warnings or info
 	Backend  string `json:"backend,omitempty"` // driver that scanned: v370 or epsonscan2
+	// Postprocessing lists the steps applied (empty: as scanned).
+	Postprocessing []string `json:"postprocessing"`
 }
 
 // MultiStartResponse is returned by POST /api/scan/multi.

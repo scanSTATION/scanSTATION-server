@@ -1,6 +1,7 @@
 // Command scanstation-server is the scanSTATION server: a REST API for
-// scanning and, by default, scan-on-button-press (configured in
-// ~/.config/scanstation/config.json).
+// scanning and, by default, scan-on-button-press. Both use the
+// postprocessing and button settings of ~/.config/scanstation/config.json
+// (default: crop to the requested size).
 //
 // Usage:
 //
@@ -38,6 +39,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,16 +80,26 @@ func main() {
 	if c, ok := b.(io.Closer); ok {
 		defer c.Close()
 	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	post, err := cfg.Pipeline()
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
 	srv := api.NewServer(b, dir)
+	srv.SetPostprocessing(post)
+	if post.Empty() {
+		log.Printf("Postprocessing: none (scans are stored as scanned)")
+	} else {
+		log.Printf("Postprocessing: %s (config: %s)", strings.Join(post.Names(), ", "), *cfgPath)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if bw, ok := b.(driver.ButtonWatcher); ok && *watch {
-		cfg, err := config.Load(*cfgPath)
-		if err != nil {
-			log.Fatalf("Error: %v", err)
-		}
 		log.Printf("Watching scanner buttons (config: %s)", *cfgPath)
 		go func() {
 			if err := bw.WatchButtons(ctx, *interval, buttons.Handler(cfg, srv.Scan, logger, nil)); err != nil {

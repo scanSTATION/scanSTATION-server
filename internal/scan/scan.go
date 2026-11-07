@@ -6,6 +6,7 @@ package scan
 
 import (
 	"fmt"
+	"github.com/scanSTATION/scanSTATION-server/internal/postprocess"
 	"strings"
 	"unicode"
 )
@@ -60,6 +61,10 @@ type ScanRequest struct {
 	// PDFLossless asks for a lossless page image in PDF output (drivers
 	// that cannot do it embed JPEG).
 	PDFLossless bool
+	// Post is the postprocessing to apply before the image is stored; nil
+	// or empty keeps the scan as scanned. Drivers that deliver finished
+	// files (already cropped by other software) report it as not applied.
+	Post *postprocess.Pipeline
 }
 
 // Default returns a ScanRequest with sensible defaults: 300 DPI, A4, JPEG, RGB.
