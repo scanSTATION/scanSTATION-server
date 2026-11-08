@@ -121,25 +121,23 @@ func TestDirectCLIMultiPage(t *testing.T) {
 }
 
 func TestDirectAPI(t *testing.T) {
-	// Default postprocessing: exactly A4 at 100 dpi (827 × 1169 px), cut from
-	// the scan's corner, pixels unchanged, missing rows white.
+	// Default postprocessing: A4 at 100 dpi rounded down (826 px wide), cut
+	// from the scan's corner; the 100 dpi scan has only 1168 of the 1169
+	// rows, and nothing is added. Pixels unchanged.
 	code, body := doJSONAt(t, directURL, "POST", "/api/scan", map[string]any{"dpi": 100, "format": "png", "prefix": "api_direct"})
 	if code != http.StatusOK || body["backend"] != "v370" || body["filename"] != "api_direct.png" ||
 		fmt.Sprint(body["postprocessing"]) != "[crop]" {
 		t.Fatalf("scan = %d %v", code, body)
 	}
 	img, err := png.Decode(bytes.NewReader(downloadAt(t, directURL, body["download_url"].(string))))
-	if err != nil || img.Bounds().Dx() != 827 || img.Bounds().Dy() != 1169 {
+	if err != nil || img.Bounds().Dx() != 826 || img.Bounds().Dy() != directH {
 		t.Fatalf("png %v %v", img.Bounds(), err)
 	}
-	for _, p := range [][2]int{{0, 0}, {300, 500}, {826, directH - 1}} {
+	for _, p := range [][2]int{{0, 0}, {300, 500}, {825, directH - 1}} {
 		r, g, b := synth.Pattern(p[0], p[1])
 		if c := color.RGBAModel.Convert(img.At(p[0], p[1])).(color.RGBA); c.R != r || c.G != g || c.B != b {
 			t.Fatalf("pixel %v = %v, want %d %d %d", p, c, r, g, b)
 		}
-	}
-	if c := color.RGBAModel.Convert(img.At(10, 1168)).(color.RGBA); directH < 1169 && (c.R != 255 || c.G != 255 || c.B != 255) {
-		t.Fatalf("padding %v, want white", c)
 	}
 	// The JSON sidecar is stored next to the image and records the step.
 	if mb := downloadAt(t, directURL, "/api/files/api_direct.json"); !bytes.Contains(mb, []byte(`"profile": "a4-100dpi-color"`)) ||

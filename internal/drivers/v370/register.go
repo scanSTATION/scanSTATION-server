@@ -30,6 +30,7 @@ type flags struct {
 	keepRaw      bool
 	simulate     string
 	simButtons   string
+	vendorStart  bool
 }
 
 func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
@@ -37,13 +38,14 @@ func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
 	fs.StringVar(&f.firmware, "v370-firmware", "", "firmware file (default: ./firmware/esfwdd.bin; needed after the scanner was switched on; lib-v370/scanstation/firmware.sh fetches it)")
 	fs.BoolVar(&f.allowUnknown, "v370-allow-unknown-firmware", false, "accept a firmware file with an unknown SHA-256")
 	fs.BoolVar(&f.keepRaw, "v370-keep-raw", false, "also keep the raw scanner stream (.raw)")
+	fs.BoolVar(&f.vendorStart, "v370-vendor-start", false, "start scans where the vendor app does (≈ 1.2 mm after the glass corner) instead of at the corner")
 	fs.StringVar(&f.simulate, "v370-simulate", "", "testing only: \"synthetic\" (simulated scanner, no hardware) or a recorded trace file to replay")
 	fs.StringVar(&f.simButtons, "v370-simulate-buttons", "", "testing only: comma-separated button presses (pdf,email,printer) the simulator reports")
 	return f.build
 }
 
 func (f *flags) build(env driver.Env) (driver.Backend, error) {
-	d := &Direct{Open: UsbfsOpener(usbfs.OnlyReal), WorkDir: env.WorkDir, KeepRaw: f.keepRaw, Log: env.Log}
+	d := &Direct{Open: UsbfsOpener(usbfs.OnlyReal), WorkDir: env.WorkDir, KeepRaw: f.keepRaw, Log: env.Log, VendorStart: f.vendorStart}
 	if f.firmware != "" {
 		fw, err := firmware.Load(f.firmware, f.allowUnknown)
 		if err != nil {

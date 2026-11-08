@@ -57,7 +57,14 @@ next to each scan records every step and its result.
 
 | Step | Effect |
 |---|---|
-| `crop` (`"mode": "nominal"`, default) | exactly the requested size at the nominal resolution — A4 at 300 dpi → 2480 × 3508 px, PDF page 210 × 297 mm — cut from the first scanned pixel (the corner side of the glass); pixels unchanged, a missing row is filled with white |
+| `crop` (`"mode": "nominal"`, default) | the requested size at the nominal resolution, rounded down like other scanning software — A4 at 300 dpi → 2480 × 3507 px — cut from the first scanned pixel; pixels unchanged, nothing added |
+
+The V370 driver starts each scan at the glass corner (measured; the vendor
+app starts ≈ 1.2 mm later and misses the top of the page), so a page pushed
+into the corner fills the crop from its top edge. Across the glass the
+scanner's real resolution is ≈ 1–1.5 % higher than nominal (lens), so an
+A4 crop ends ≈ 1.5–2 mm before the page's right edge; nothing is rescaled.
+`--v370-vendor-start` restores the vendor app's start position.
 
 Configured in `config.json` (default shown); a button can override it
 with its own `postprocessing`, an API request with

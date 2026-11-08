@@ -135,7 +135,7 @@ func TestServerButtons(t *testing.T) {
 	checkLosslessPDF(t, pdf)
 	// Cropped to A4 at 100 dpi; the original is kept.
 	side, err := os.ReadFile(strings.TrimSuffix(pdf, ".pdf") + ".json")
-	if err != nil || !bytes.Contains(side, []byte(`"width_px": 827`)) || !bytes.Contains(side, []byte(`"step": "crop"`)) ||
+	if err != nil || !bytes.Contains(side, []byte(`"width_px": 826`)) || !bytes.Contains(side, []byte(`"step": "crop"`)) ||
 		!bytes.Contains(side, []byte(`-original.pdf"`)) {
 		t.Fatalf("sidecar %s %v", side, err)
 	}

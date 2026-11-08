@@ -81,6 +81,9 @@ type Direct struct {
 	// reserved for this program until Close. The kept device has no host
 	// session while idle, so the Power button works (hold ~3 s).
 	KeepOpen bool
+	// VendorStart keeps the vendor app's carriage start position (scans
+	// begin ≈ 1.2 mm after the glass corner); default: at the corner.
+	VendorStart bool
 
 	mu        sync.Mutex // one session at a time
 	dev       *libv370.Device
@@ -110,7 +113,7 @@ func (d *Direct) openLocked(ctx context.Context) (*libv370.Device, error) {
 	// The kept device runs without a host session: the scanner's Power button
 	// stays usable (a session blocks it) and buttons can still be read;
 	// scans open a session only for their duration (libv370.Device.Scan).
-	dev, err := libv370.OpenDevice(ctx, libv370.Options{Open: d.Open, Firmware: d.Firmware, Log: d.Log, Now: d.Now, NoSession: d.KeepOpen})
+	dev, err := libv370.OpenDevice(ctx, libv370.Options{Open: d.Open, Firmware: d.Firmware, Log: d.Log, Now: d.Now, NoSession: d.KeepOpen, VendorStart: d.VendorStart})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", driver.ErrScanner, err)
 	}

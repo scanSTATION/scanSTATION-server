@@ -83,7 +83,7 @@ Later (optional): colour calibration with a printed chart.
 **Goal:** scans from the server (REST API and buttons) go through a
 configurable postprocessing pipeline of steps before they are written.
 Default: crop to exactly the requested size (A4 → 210 × 297 mm, e.g.
-2480 × 3508 px at 300 dpi) instead of the full scanned width. Configured
+2480 × 3507 px at 300 dpi) instead of the full scanned width. Configured
 otherwise, the scan is kept exactly as scanned (today's behaviour).
 Optional step: detect the document's real dimensions automatically.
 
@@ -97,28 +97,38 @@ flowchart LR
 Steps:
 1. [x] P1. Geometry check on the scanner (ID-1 card 85.60 × 53.98 mm in
        the middle and in the corner, 300 dpi):
-       - image (0,0) = scan start, about 1.7 mm (across) / 0.9 mm (along)
-         inside the glass corner; the crop starts at (0,0);
-       - real resolution 304.4 dpi across (+1.5 %), 306.0 dpi along
-         (+2.0 %) at nominal 300 dpi;
+       - image (0,0) = scan start; along ≈ 1.2 mm after the corner with the
+         vendor start (corrected, P5a), across at the frame edge
+         (the crop starts at (0,0));
+       - real resolution along the glass 300.2 dpi (ruler, ±0.01 %), across
+         ≈ +1.0–1.5 % (lens; depends on the object's height);
        - the vendor app crops raw x ≈ 5–10 … +2480 (A4) and keeps all scanned
          rows (2480 × 3507), no rescaling;
-       - bright strip x ≈ 2505–2630 and line y ≈ 3482 are scanner features
-         (visible without paper), not sheet edges.
+       - correction (2026-11-08): x ≈ 2505 and y ≈ 3474–3482 are the edges of
+         the A4 sheet; a nominal A4 crop (2480 × 3508) cuts ≈ 2 mm off the
+         sheet's right side and ends ≈ 2.5–3 mm below its bottom edge.
 2. [x] P2. The request carries the pipeline (`scan.ScanRequest.Post`); the
        v370 driver runs it on the decoded image before encoding
        (lib-v370 `output.Options.Transform`, `KeepOriginal`); epsonscan2
        files and the raw format pass through unchanged.
 3. [x] P3. `internal/postprocess`: step interface, pipeline, step `crop`
-       mode `nominal` (requested size at nominal dpi from the scan's first
-       pixel, white padding); sidecar `processing.steps` records each step.
+       mode `nominal` (requested size at nominal dpi, rounded down like
+       other software, from the scan's first pixel, nothing added); sidecar
+       `processing.steps` records each step.
 4. [x] P4. Configuration (`config.json`): `postprocessing` (default crop,
        `[]` = as scanned, `keep_original`), per-button override, API
        `"postprocessing": "default" | "none"`; validated at start-up.
-5. [ ] P5. Later (with OpenCV as an optional build module): detect the
+5. [x] P5a. Scan start at the glass corner (2026-11-08): the vendor's
+       pre-move (`1e 01`) starts ≈ 1.2 mm late; measured per resolution with
+       a sheet of known length (lid open) and corrected in the driver
+       (568/556/752/748/812 → 468/446/639/632/695 steps; first line = corner
+       ±0.1 mm). Moving the sensor window left gains nothing (frame edge).
+       Other software (vendor app, iscan, SANE, HP) sizes by mm × dpi
+       rounded down from the device origin, without corrections.
+6. [ ] P5. Later (with OpenCV as an optional build module): detect the
        document, deskew, whiten the background; OCR via Tesseract.
        Crop mode `true_size` after a ruler check of the real resolution.
-6. [ ] P6. Tests (unit, integration against the synthetic scanner, image
+7. [ ] P6. Tests (unit, integration against the synthetic scanner, image
        test), docs, real-scanner check.
 
 ## Ideas / next

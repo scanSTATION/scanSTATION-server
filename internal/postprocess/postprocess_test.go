@@ -1,6 +1,7 @@
 package postprocess
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"testing"
@@ -26,19 +27,21 @@ func TestCropNominalA4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b := out.Bounds(); b.Dx() != 2480 || b.Dy() != 3508 {
-		t.Fatalf("A4 at 300 dpi: %v, want 2480 × 3508", b)
+	if b := out.Bounds(); b.Dx() != 2480 || b.Dy() != 3507 {
+		t.Fatalf("A4 at 300 dpi: %v, want 2480 × 3507 (rounded down)", b)
 	}
-	// Pixels are copied unchanged from (0, 0); the missing row is white.
+	// Pixels are copied unchanged from (0, 0).
 	if out.RGBAAt(100, 200) != src.RGBAAt(100, 200) || out.RGBAAt(2479, 3506) != src.RGBAAt(2479, 3506) {
 		t.Fatal("pixels changed")
 	}
-	if c := out.RGBAAt(5, 3507); c != (color.RGBA{255, 255, 255, 255}) {
-		t.Fatalf("padding %v, want white", c)
-	}
 	r := recs[0]
-	if r["step"] != StepCrop || r["mode"] != CropNominal || r["padded_px"].(map[string]int)["bottom"] != 1 {
+	if r["step"] != StepCrop || r["mode"] != CropNominal || r["requested_px"] != nil {
 		t.Fatalf("record %v", r)
+	}
+	// A smaller scan stays smaller: nothing is added.
+	out, recs, _ = p.Run(scanImage(848, 1168), Context{DPI: 100, AreaMM: [2]float64{210, 297}})
+	if b := out.Bounds(); b.Dx() != 826 || b.Dy() != 1168 || fmt.Sprint(recs[0]["requested_px"]) != "[826 1169]" {
+		t.Fatalf("100 dpi: %v %v", out.Bounds(), recs[0])
 	}
 }
 
@@ -53,8 +56,8 @@ func TestCropSizes(t *testing.T) {
 		wantH int
 	}{
 		{1200, [2]float64{148, 210}, 7056, 9921, 6992, 9921}, // A5 at 1200 dpi
-		{600, [2]float64{210, 297}, 5008, 7016, 4961, 7016},  // A4 at 600 dpi
-		{300, [2]float64{100, 50}, 1536, 591, 1181, 591},
+		{600, [2]float64{210, 297}, 5008, 7016, 4960, 7015},  // A4 at 600 dpi
+		{300, [2]float64{100, 50}, 1536, 591, 1181, 590},     // 590.55 → 590
 	} {
 		out, _, err := c.Apply(scanImage(tc.srcW, tc.srcH), Context{DPI: tc.dpi, AreaMM: tc.mm})
 		if err != nil {

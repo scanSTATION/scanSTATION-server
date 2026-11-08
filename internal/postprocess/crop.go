@@ -3,7 +3,6 @@ package postprocess
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"math"
 )
@@ -13,10 +12,11 @@ const StepCrop = "crop"
 
 // Crop modes.
 const (
-	// CropNominal: exactly the requested size at the nominal resolution
-	// (A4 at 300 dpi → 2480 × 3508 px), starting at the first scanned pixel
-	// (the corner side of the glass). Pixels are copied unchanged; where the
-	// scan is smaller, the rest is filled with white.
+	// CropNominal: the requested size at the nominal resolution, rounded
+	// down like other scanning software (A4 at 300 dpi → 2480 × 3507 px),
+	// starting at the first scanned pixel (the glass corner). Pixels are
+	// copied unchanged and nothing is added: a scan smaller than the
+	// requested size stays smaller.
 	CropNominal = "nominal"
 )
 
@@ -32,8 +32,9 @@ func newCrop(sc StepConfig) (Step, error) {
 
 func (crop) Name() string { return StepCrop }
 
-// px converts mm at dpi to whole pixels (rounded).
-func px(mm float64, dpi int) int { return int(math.Round(mm * float64(dpi) / 25.4)) }
+// px converts mm at dpi to whole pixels, rounded down (a tiny tolerance
+// keeps exact values such as 1181.0000001 from losing a pixel).
+func px(mm float64, dpi int) int { return int(math.Floor(mm*float64(dpi)/25.4 + 1e-6)) }
 
 func (c crop) Apply(img *image.RGBA, ctx Context) (*image.RGBA, Record, error) {
 	if ctx.AreaMM[0] == 0 && ctx.AreaMM[1] == 0 {
@@ -45,18 +46,18 @@ func (c crop) Apply(img *image.RGBA, ctx Context) (*image.RGBA, Record, error) {
 		return nil, nil, fmt.Errorf("requested area %.1f × %.1f mm is empty", ctx.AreaMM[0], ctx.AreaMM[1])
 	}
 	src := img.Bounds()
-	out := image.NewRGBA(image.Rect(0, 0, w, h))
-	draw.Draw(out, out.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	cw, ch := min(w, src.Dx()), min(h, src.Dy())
+	out := image.NewRGBA(image.Rect(0, 0, cw, ch))
 	draw.Draw(out, out.Bounds(), img, src.Min, draw.Src)
 	rec := Record{
 		"mode":      c.mode,
-		"box_px":    []int{0, 0, w, h},
+		"box_px":    []int{0, 0, cw, ch},
 		"source_px": []int{src.Dx(), src.Dy()},
 		"area_mm":   []float64{ctx.AreaMM[0], ctx.AreaMM[1]},
 		"dpi":       ctx.DPI,
 	}
-	if pr, pb := max(0, w-src.Dx()), max(0, h-src.Dy()); pr > 0 || pb > 0 {
-		rec["padded_px"] = map[string]int{"right": pr, "bottom": pb}
+	if cw < w || ch < h {
+		rec["requested_px"] = []int{w, h} // the scan was smaller; nothing added
 	}
 	return out, rec, nil
 }
