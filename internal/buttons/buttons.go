@@ -1,14 +1,16 @@
 // Package buttons turns scanner button presses into configured actions:
-// scan and store the file in a configured directory. A button scanning to
-// PDF can also build multi-page documents:
+// scan and store the file in a configured directory. Every button scanning
+// to PDF (PDF, Email, Printer — per configuration) can also build
+// multi-page documents:
 //
 //	idle:           short press → single-page scan
 //	                long press  → start a document, scan page 1
-//	document open:  short press → scan the next page
-//	                long press  → finish: one PDF from all pages
+//	document open:  press of the same button → scan the next page
+//	                short press of Power     → finish: one PDF from all pages
 //
-// An open document is finished automatically after an idle timeout, so no
-// pages are lost.
+// One document is open at a time; other buttons are ignored meanwhile. An
+// open document is finished automatically after an idle timeout (and when
+// the controller is closed), so no pages are lost.
 package buttons
 
 import (
@@ -39,7 +41,7 @@ const (
 	KindSingle  = "single"  // single-page scan stored
 	KindStart   = "start"   // document started, page 1 scanned
 	KindPage    = "page"    // next page scanned
-	KindFinish  = "finish"  // document finished (long press)
+	KindFinish  = "finish"  // document finished (Power)
 	KindTimeout = "timeout" // document finished after the idle timeout
 )
 
@@ -133,8 +135,25 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 	b := string(p.Button)
 	ev := Event{Button: b, Action: config.ActionNone, Held: p.Held}
 	defer func() { c.emit(ev) }()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	open := c.openLocked()
 	if p.Button == driver.ButtonPower {
-		c.log.Info("power button pressed (hold it ~3 s to switch the scanner off)")
+		if open == nil {
+			c.log.Info("power button pressed (hold it ~3 s to switch the scanner off)")
+			return
+		}
+		ev = c.finishLocked(open, KindFinish)
+		ev.Held = p.Held
+		delete(c.docs, open.button)
+		if ev.Err != nil {
+			c.log.Error("multi-page document failed", "button", open.button, "err", ev.Err)
+		}
+		return
+	}
+	if open != nil && open.button != b {
+		c.log.Info("multi-page document open: ignoring this button; press "+open.button+" for the next page, Power to finish",
+			"button", b, "pages", len(open.pages))
 		return
 	}
 	a, ok := c.cfg.Buttons[b]
@@ -145,8 +164,6 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 	ev.Action = config.ActionScan
 	long := a.MultiPageEnabled() && p.Held >= a.LongPress()
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	d := c.docs[b]
 	switch {
 	case d == nil && !long:
@@ -167,24 +184,27 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 			delete(c.docs, b)
 			break
 		}
-		c.log.Info("multi-page document started: short press = next page, long press = finish",
+		c.log.Info("multi-page document started: press "+b+" for the next page, Power (short) to finish",
 			"button", b, "pages", ev.Pages, "auto_finish_after", a.MultiTimeout())
-	case !long:
+	default:
 		ev.Kind = KindPage
 		ev.Backend, ev.Err = c.page(ctx, d)
 		ev.Pages = len(d.pages)
 		if ev.Err == nil {
 			c.log.Info("multi-page document: page scanned", "button", b, "pages", ev.Pages)
 		}
-	default:
-		held := ev.Held
-		ev = c.finishLocked(d, KindFinish)
-		ev.Held = held
-		delete(c.docs, b)
 	}
 	if ev.Err != nil {
 		c.log.Error("button scan failed", "button", b, "kind", ev.Kind, "err", ev.Err)
 	}
+}
+
+// openLocked returns the open document, if any.
+func (c *Controller) openLocked() *document {
+	for _, d := range c.docs {
+		return d
+	}
+	return nil
 }
 
 // single scans one page straight into the button's directory.

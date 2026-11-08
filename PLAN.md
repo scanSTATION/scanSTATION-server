@@ -133,10 +133,11 @@ Steps:
 
 ## Phase B. Short / long button press (requested 2026-11-08)
 
-**Goal:** PDF button short (< threshold, default 1.5 s) = single-page scan;
-long = start a multi-page document and scan page 1. While a document is
-open: short = next page, long = finish (one PDF). Auto-finish after an
-idle timeout. Configurable per button.
+**Goal:** button short (< threshold, default 1 s) = single-page scan; long
+= start a multi-page document and scan page 1. While a document is open:
+the same button = next page, a short Power press = finish (one PDF); other
+buttons are ignored. Auto-finish after an idle timeout. The same for every
+button configured to scan to PDF (PDF, Email, Printer).
 
 Steps:
 1. [x] B1. Read-only test on the scanner (verified: RAM 0x452 = live input,

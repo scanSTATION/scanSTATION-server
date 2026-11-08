@@ -106,16 +106,21 @@ run the actions from `~/.config/scanstation/config.json`:
 Press firmly (~0.5 s); after a long idle time the first press may only wake
 the scanner. Two presses within the same second get distinct file names.
 
-**Multi-page PDFs** (buttons scanning to PDF): the driver measures how long
-a button is held (lib-v370 reads the firmware's live button state).
+**Multi-page PDFs** (every button configured to scan to PDF — PDF, and
+Email/Printer once configured): the driver measures how long a button is
+held (lib-v370 reads the firmware's live button state).
 
-| State | Short press (< 1 s) | Long press (≥ 1 s) |
+| State | Press | Action |
 |---|---|---|
-| idle | single-page scan | start a document, scan page 1 |
-| document open | scan the next page | finish: one PDF from all pages |
+| idle | short (< 1 s) | single-page scan |
+| idle | long (≥ 1 s) | start a document, scan page 1 |
+| document open | the same button | scan the next page |
+| document open | **Power**, short | finish: one PDF from all pages |
+| document open | another button | ignored (logged) |
 
-An open document is finished automatically after 10 minutes without a
-press; `GET /api/status` lists open documents (`button_documents`). The
+Holding Power ~3 s still switches the scanner off. An open document is
+finished automatically after 10 minutes without a press (and when the
+server stops); `GET /api/status` lists open documents (`button_documents`). The
 document's JSON contains every page's sidecar. Per button in `config.json`:
 `"multi_page": false` (every press is a single scan), `"long_press_s": 1.0`,
 `"multi_timeout_min": 10`.

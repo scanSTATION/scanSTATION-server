@@ -30,12 +30,12 @@ type scriptedPress struct {
 	hold   time.Duration
 }
 
-// ParseButtons parses "pdf,email,pdf:2s,printer:1.5s" into an injector: a
+// ParseButtons parses "pdf,email,pdf:2s,printer:1.5s,power" into an injector: a
 // button name, optionally with how long it is held (default: a short
 // press of v370.PressDebounce).
 func ParseButtons(list string) (*ButtonInjector, error) {
 	inj := &ButtonInjector{}
-	names := map[string]v370.Button{"pdf": v370.ButtonPDF, "email": v370.ButtonEmail, "printer": v370.ButtonPrinter}
+	names := map[string]v370.Button{"pdf": v370.ButtonPDF, "email": v370.ButtonEmail, "printer": v370.ButtonPrinter, "power": v370.ButtonPower}
 	for _, n := range strings.Split(list, ",") {
 		n = strings.TrimSpace(n)
 		if n == "" {

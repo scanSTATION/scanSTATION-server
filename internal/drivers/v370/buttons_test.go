@@ -90,10 +90,11 @@ func multiPageSetup(t *testing.T, presses string, timeoutMin float64) (*v370drv.
 	return d, cfg, out
 }
 
-// Long press: start a document; short presses add pages; long press
+// Long press: start a document; further presses of the same button (short
+// or long) add pages; other buttons are ignored; a short Power press
 // finishes it into one PDF. A short press afterwards is a single scan.
 func TestPDFButtonMultiPage(t *testing.T) {
-	d, cfg, out := multiPageSetup(t, "pdf:1500ms,pdf,pdf,pdf:1500ms,pdf", 0)
+	d, cfg, out := multiPageSetup(t, "pdf:1500ms,pdf,pdf:1500ms,email,power,pdf", 0)
 	defer d.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -116,8 +117,11 @@ func TestPDFButtonMultiPage(t *testing.T) {
 			t.Fatalf("documents %+v", docs)
 		}
 	}
+	if ev := <-events; ev.Button != "email" || ev.Kind != "" || ev.Err != nil {
+		t.Fatalf("email while a document is open must be ignored: %+v", ev)
+	}
 	fin := <-events
-	if fin.Err != nil || fin.Kind != buttons.KindFinish || fin.Pages != 3 || len(fin.Files) != 2 {
+	if fin.Err != nil || fin.Button != "pdf" || fin.Kind != buttons.KindFinish || fin.Pages != 3 || len(fin.Files) != 2 {
 		t.Fatalf("finish %+v", fin)
 	}
 	pdf, err := os.ReadFile(fin.Files[0])
@@ -137,6 +141,34 @@ func TestPDFButtonMultiPage(t *testing.T) {
 	// Only the document, its sidecar and the single scan (+ sidecar) remain.
 	if m, _ := filepath.Glob(filepath.Join(out, "*")); len(m) != 4 {
 		t.Fatalf("output files %v", m)
+	}
+}
+
+// The same works for any button configured to scan to PDF (here Email).
+func TestEmailButtonMultiPage(t *testing.T) {
+	d, cfg, _ := multiPageSetup(t, "email:1500ms,email,power", 0)
+	defer d.Close()
+	out := t.TempDir()
+	cfg.Buttons[config.ButtonEmail] = config.ButtonAction{Action: config.ActionScan, Format: "pdf", DPI: 100, Size: "a4",
+		OutputDir: out, Prefix: "mail_{datetime}"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	events := make(chan buttons.Event, 4)
+	go d.WatchButtons(ctx, 50*time.Millisecond, buttons.Handler(cfg, d.Scan, nil, func(e buttons.Event) { events <- e }))
+	for _, kind := range []string{buttons.KindStart, buttons.KindPage, buttons.KindFinish} {
+		if ev := <-events; ev.Err != nil || ev.Button != "email" || ev.Kind != kind {
+			t.Fatalf("%+v, want %s", ev, kind)
+		}
+	}
+	m, _ := filepath.Glob(filepath.Join(out, "mail_*.pdf"))
+	if len(m) != 1 {
+		t.Fatalf("documents %v", m)
+	}
+	if b, _ := os.ReadFile(m[0]); pdfPageCount(b) != 2 {
+		t.Fatalf("%s: %d pages", m[0], pdfPageCount(b))
 	}
 }
 

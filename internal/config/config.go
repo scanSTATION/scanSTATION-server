@@ -47,8 +47,9 @@ type ButtonAction struct {
 	Prefix    string  `json:"prefix,omitempty"`     // "{datetime}" → 20261107-143012
 	// Postprocessing overrides the server's postprocessing for this button.
 	Postprocessing *postprocess.Config `json:"postprocessing,omitempty"`
-	// MultiPage: a long press starts a multi-page PDF (short presses add
-	// pages, a long press finishes it). Missing: on for format pdf.
+	// MultiPage: a long press starts a multi-page PDF (further presses of
+	// the button add pages, a short Power press finishes it). Missing: on
+	// for format pdf.
 	MultiPage *bool `json:"multi_page,omitempty"`
 	// LongPressS is the long-press threshold in seconds (default 1.0).
 	LongPressS float64 `json:"long_press_s,omitempty"`
