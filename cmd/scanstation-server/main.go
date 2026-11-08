@@ -102,6 +102,9 @@ func main() {
 	if bw, ok := b.(driver.ButtonWatcher); ok && *watch {
 		log.Printf("Watching scanner buttons (config: %s)", *cfgPath)
 		ctl := buttons.New(cfg, srv.Scan, logger, nil)
+		if ind, ok := b.(driver.Indicator); ok {
+			ctl.SetIndicator(ind)
+		}
 		srv.SetButtonDocuments(ctl.Documents)
 		defer ctl.Close() // finish open multi-page documents
 		go func() {

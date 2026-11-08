@@ -72,6 +72,26 @@ func (c *Chain) WatchButtons(ctx context.Context, interval time.Duration, onPres
 	return errors.New("no compiled-in driver can watch buttons")
 }
 
+// SetLight implements Indicator (first driver that has a status light).
+func (c *Chain) SetLight(ctx context.Context, l Light) error {
+	for _, b := range c.Backends {
+		if i, ok := b.(Indicator); ok {
+			return i.SetLight(ctx, l)
+		}
+	}
+	return errors.New("no compiled-in driver has a status light")
+}
+
+// LightOffSupported implements Indicator.
+func (c *Chain) LightOffSupported(ctx context.Context) bool {
+	for _, b := range c.Backends {
+		if i, ok := b.(Indicator); ok {
+			return i.LightOffSupported(ctx)
+		}
+	}
+	return false
+}
+
 // Close closes every driver that holds resources.
 func (c *Chain) Close() error {
 	closeAll(c.Backends)

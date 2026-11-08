@@ -31,6 +31,7 @@ type flags struct {
 	simulate     string
 	simButtons   string
 	vendorStart  bool
+	stock        bool
 }
 
 func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
@@ -39,13 +40,14 @@ func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
 	fs.BoolVar(&f.allowUnknown, "v370-allow-unknown-firmware", false, "accept a firmware file with an unknown SHA-256")
 	fs.BoolVar(&f.keepRaw, "v370-keep-raw", false, "also keep the raw scanner stream (.raw)")
 	fs.BoolVar(&f.vendorStart, "v370-vendor-start", false, "start scans where the vendor app does (≈ 1.2 mm after the glass corner) instead of at the corner")
+	fs.BoolVar(&f.stock, "v370-stock-firmware", false, "upload the firmware without lib-v370's LED patch (no LED off state; buttons pause while the LED is orange)")
 	fs.StringVar(&f.simulate, "v370-simulate", "", "testing only: \"synthetic\" (simulated scanner, no hardware) or a recorded trace file to replay")
 	fs.StringVar(&f.simButtons, "v370-simulate-buttons", "", "testing only: comma-separated button presses the simulator reports (pdf,email,printer; pdf:2s = held 2 s)")
 	return f.build
 }
 
 func (f *flags) build(env driver.Env) (driver.Backend, error) {
-	d := &Direct{Open: UsbfsOpener(usbfs.OnlyReal), WorkDir: env.WorkDir, KeepRaw: f.keepRaw, Log: env.Log, VendorStart: f.vendorStart}
+	d := &Direct{Open: UsbfsOpener(usbfs.OnlyReal), WorkDir: env.WorkDir, KeepRaw: f.keepRaw, Log: env.Log, VendorStart: f.vendorStart, StockFirmware: f.stock}
 	if f.firmware != "" {
 		fw, err := firmware.Load(f.firmware, f.allowUnknown)
 		if err != nil {
@@ -53,11 +55,12 @@ func (f *flags) build(env driver.Env) (driver.Backend, error) {
 		}
 		d.Firmware = fw
 	}
+	var dev *synth.Device
 	switch f.simulate {
 	case "":
 	case Synthetic:
-		dev, err := synth.New(synth.Options{})
-		if err != nil {
+		var err error
+		if dev, err = synth.New(synth.Options{LEDPatch: !f.stock}); err != nil {
 			return nil, err
 		}
 		d.Open = libv370.SyntheticScanner(dev)
@@ -79,7 +82,11 @@ func (f *flags) build(env driver.Env) (driver.Backend, error) {
 		if err != nil {
 			return nil, err
 		}
-		d.Open = inj.Wrap(d.Open)
+		if dev != nil {
+			inj.Into(dev)
+		} else {
+			d.Open = inj.Wrap(d.Open)
+		}
 	}
 	return d, nil
 }

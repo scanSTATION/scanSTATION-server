@@ -95,6 +95,24 @@ type ButtonWatcher interface {
 	WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, Press)) error
 }
 
+// Light is a state of the scanner's status light.
+type Light int
+
+const (
+	LightGreen  Light = iota // normal
+	LightOrange              // highlighted (e.g. multi-page document open)
+	LightOff
+)
+
+// Indicator is implemented by drivers that can set the scanner's status
+// light (only while idle; the driver serialises it with scans).
+type Indicator interface {
+	SetLight(ctx context.Context, l Light) error
+	// LightOffSupported reports whether LightOff is available (otherwise
+	// it shows as green).
+	LightOffSupported(ctx context.Context) bool
+}
+
 // Suspender is implemented by drivers that keep the scanner reserved; the
 // auto chain suspends them while another driver (another program) uses the
 // scanner.

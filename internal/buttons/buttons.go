@@ -11,6 +11,18 @@
 // One document is open at a time; other buttons are ignored meanwhile. An
 // open document is finished automatically after an idle timeout (and when
 // the controller is closed), so no pages are lost.
+//
+// With a driver.Indicator the scanner's light shows what happens:
+//
+//	single-page scan:         green → briefly off → green
+//	document started:         off → orange (stays while the document is open)
+//	next page:                orange → briefly off → orange
+//	finished (Power/timeout): briefly off → green
+//	scan failed:              3 quick off/on in the current colour
+//
+// Without an off state (stock firmware, where buttons also pause while the
+// light is orange) the light stays green during documents and orange only
+// flashes briefly.
 package buttons
 
 import (
@@ -86,6 +98,77 @@ type Controller struct {
 
 	mu   sync.Mutex
 	docs map[string]*document
+	ind  driver.Indicator
+}
+
+// Light feedback timing.
+const (
+	blinkTime = 300 * time.Millisecond
+	errorTime = 150 * time.Millisecond
+)
+
+// SetIndicator makes the controller show its state on the scanner's light.
+func (c *Controller) SetIndicator(i driver.Indicator) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ind = i
+}
+
+func (c *Controller) light(ctx context.Context, l driver.Light) {
+	if c.ind == nil {
+		return
+	}
+	if err := c.ind.SetLight(ctx, l); err != nil {
+		c.log.Debug("status light", "err", err)
+	}
+}
+
+// off is the state that stands for "off": off itself, or the other colour.
+func (c *Controller) off(ctx context.Context, base driver.Light) driver.Light {
+	if c.ind != nil && c.ind.LightOffSupported(ctx) {
+		return driver.LightOff
+	}
+	if base == driver.LightOrange {
+		return driver.LightGreen
+	}
+	return driver.LightOrange
+}
+
+// flash switches the light to "off" and back to base n times.
+func (c *Controller) flash(ctx context.Context, base driver.Light, n int, d time.Duration) {
+	if c.ind == nil {
+		return
+	}
+	other := c.off(ctx, base)
+	for i := 0; i < n; i++ {
+		c.light(ctx, other)
+		time.Sleep(d)
+		c.light(ctx, base)
+		if i+1 < n {
+			time.Sleep(d)
+		}
+	}
+}
+
+// docLight is the light while a document is open: orange, but only if the
+// firmware keeps the buttons working while orange (LED patch); else green.
+func (c *Controller) docLight(ctx context.Context) driver.Light {
+	if c.ind != nil && c.ind.LightOffSupported(ctx) {
+		return driver.LightOrange
+	}
+	return driver.LightGreen
+}
+
+// settle switches through "off" to l (document started / finished).
+func (c *Controller) settle(ctx context.Context, l driver.Light) {
+	if c.ind == nil {
+		return
+	}
+	if o := c.off(ctx, l); o == driver.LightOff {
+		c.light(ctx, o)
+		time.Sleep(blinkTime)
+	}
+	c.light(ctx, l)
 }
 
 // New creates a controller. notify (optional) receives an Event after each
@@ -121,6 +204,9 @@ func (c *Controller) Close() {
 	for name, d := range c.docs {
 		c.emit(c.finishLocked(d, KindFinish))
 		delete(c.docs, name)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		c.light(ctx, driver.LightGreen)
+		cancel()
 	}
 }
 
@@ -146,8 +232,10 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 		ev = c.finishLocked(open, KindFinish)
 		ev.Held = p.Held
 		delete(c.docs, open.button)
+		c.settle(ctx, driver.LightGreen)
 		if ev.Err != nil {
 			c.log.Error("multi-page document failed", "button", open.button, "err", ev.Err)
+			c.flash(ctx, driver.LightGreen, 3, errorTime)
 		}
 		return
 	}
@@ -168,6 +256,7 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 	switch {
 	case d == nil && !long:
 		ev.Kind = KindSingle
+		c.flash(ctx, driver.LightGreen, 1, blinkTime)
 		ev.Files, ev.Backend, ev.Err = c.single(ctx, b, a)
 		if ev.Err == nil {
 			c.log.Info("button scan stored", "button", b, "file", ev.Files[0], "backend", ev.Backend)
@@ -177,17 +266,20 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 		if d, ev.Err = c.start(b, a); ev.Err != nil {
 			break
 		}
+		c.settle(ctx, c.docLight(ctx))
 		ev.Backend, ev.Err = c.page(ctx, d)
 		ev.Pages = len(d.pages)
 		if ev.Err != nil { // no page: no document
 			d.timer.Stop()
 			delete(c.docs, b)
+			c.light(ctx, driver.LightGreen)
 			break
 		}
 		c.log.Info("multi-page document started: press "+b+" for the next page, Power (short) to finish",
 			"button", b, "pages", ev.Pages, "auto_finish_after", a.MultiTimeout())
 	default:
 		ev.Kind = KindPage
+		c.flash(ctx, c.docLight(ctx), 1, blinkTime)
 		ev.Backend, ev.Err = c.page(ctx, d)
 		ev.Pages = len(d.pages)
 		if ev.Err == nil {
@@ -196,6 +288,11 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 	}
 	if ev.Err != nil {
 		c.log.Error("button scan failed", "button", b, "kind", ev.Kind, "err", ev.Err)
+		base := driver.LightGreen
+		if c.docs[b] != nil {
+			base = c.docLight(ctx)
+		}
+		c.flash(ctx, base, 3, errorTime)
 	}
 }
 
@@ -279,7 +376,11 @@ func (c *Controller) timeout(b string, d *document) {
 		return // finished or replaced meanwhile
 	}
 	delete(c.docs, b)
-	c.emit(c.finishLocked(d, KindTimeout))
+	ev := c.finishLocked(d, KindTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c.settle(ctx, driver.LightGreen)
+	c.emit(ev)
 }
 
 // finishLocked merges the pages into <prefix>.pdf (and the originals into

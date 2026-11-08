@@ -84,6 +84,8 @@ type Direct struct {
 	// VendorStart keeps the vendor app's carriage start position (scans
 	// begin ≈ 1.2 mm after the glass corner); default: at the corner.
 	VendorStart bool
+	// StockFirmware uploads the firmware without lib-v370's LED patch.
+	StockFirmware bool
 
 	mu        sync.Mutex // one session at a time
 	dev       *libv370.Device
@@ -113,7 +115,7 @@ func (d *Direct) openLocked(ctx context.Context) (*libv370.Device, error) {
 	// The kept device runs without a host session: the scanner's Power button
 	// stays usable (a session blocks it) and buttons can still be read;
 	// scans open a session only for their duration (libv370.Device.Scan).
-	dev, err := libv370.OpenDevice(ctx, libv370.Options{Open: d.Open, Firmware: d.Firmware, Log: d.Log, Now: d.Now, NoSession: d.KeepOpen, VendorStart: d.VendorStart})
+	dev, err := libv370.OpenDevice(ctx, libv370.Options{Open: d.Open, Firmware: d.Firmware, Log: d.Log, Now: d.Now, NoSession: d.KeepOpen, VendorStart: d.VendorStart, StockFirmware: d.StockFirmware})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", driver.ErrScanner, err)
 	}
@@ -250,6 +252,33 @@ func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPre
 		case <-time.After(wait):
 		}
 	}
+}
+
+// SetLight implements driver.Indicator.
+func (d *Direct) SetLight(ctx context.Context, l driver.Light) error {
+	led := map[driver.Light]v370.LED{driver.LightGreen: v370.LEDGreen, driver.LightOrange: v370.LEDOrange, driver.LightOff: v370.LEDOff}[l]
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dev, err := d.openLocked(ctx)
+	if err != nil {
+		return err
+	}
+	err = dev.SetLED(ctx, led)
+	d.doneLocked(dev, err != nil)
+	return err
+}
+
+// LightOffSupported implements driver.Indicator: the LED patch is running.
+func (d *Direct) LightOffSupported(ctx context.Context) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dev, err := d.openLocked(ctx)
+	if err != nil {
+		return false
+	}
+	ok, err := dev.LEDPatched(ctx)
+	d.doneLocked(dev, err != nil)
+	return err == nil && ok
 }
 
 // Press duration measurement: poll interval and upper bound.

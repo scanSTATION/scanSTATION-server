@@ -151,6 +151,22 @@ Steps:
        tests, docs.
 4. [ ] B4. Real-scanner check.
 
+## Phase F. LED feedback with a firmware patch (requested 2026-11-08)
+
+**Goal:** the LED shows single page (green, brief off), document open
+(orange, brief off per page), finish (brief off, green), errors (3 quick
+flashes). "Off" and buttons-while-orange need a small patch of our own,
+applied in memory to the pinned vendor build (no firmware file distributed).
+
+1. [x] F1. Static analysis: LED = two-colour on 0x37FD00 bits 4/5; `1e de`
+       selects orange (verified on the scanner: orange; one-byte test patch:
+       off); stock orange skips the button sampling.
+2. [x] F2. lib-v370: `firmware.Patch`/`Apply` (both SHA-256 pinned),
+       `LEDPatch`, `SetLED`, `LEDPatched`, synthetic LED; docs.
+3. [x] F3. Server: `driver.Indicator`, light scheme in the button
+       controller, fallback without the patch; tests.
+4. [ ] F4. Real-scanner check (power cycle to load the patched firmware).
+
 ## Ideas / next
 
 - Generate V370 scan settings instead of replaying recorded profiles (any

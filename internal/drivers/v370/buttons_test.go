@@ -3,6 +3,7 @@ package v370drv_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -69,8 +70,13 @@ func pdfPageCount(b []byte) int {
 }
 
 func multiPageSetup(t *testing.T, presses string, timeoutMin float64) (*v370drv.Direct, config.Config, string) {
+	d, _, cfg, out := multiPageSetupLED(t, presses, timeoutMin, true)
+	return d, cfg, out
+}
+
+func multiPageSetupLED(t *testing.T, presses string, timeoutMin float64, ledPatch bool) (*v370drv.Direct, *synth.Device, config.Config, string) {
 	t.Helper()
-	dev, err := synth.New(synth.Options{})
+	dev, err := synth.New(synth.Options{LEDPatch: ledPatch})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +84,8 @@ func multiPageSetup(t *testing.T, presses string, timeoutMin float64) (*v370drv.
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &v370drv.Direct{Open: inj.Wrap(libv370.SyntheticScanner(dev)), Firmware: synth.DummyFirmware(), WorkDir: t.TempDir()}
+	inj.Into(dev)
+	d := &v370drv.Direct{Open: libv370.SyntheticScanner(dev), Firmware: synth.DummyFirmware(), WorkDir: t.TempDir()}
 	out := t.TempDir()
 	cfg := config.Default()
 	a := cfg.Buttons[config.ButtonPDF]
@@ -87,7 +94,7 @@ func multiPageSetup(t *testing.T, presses string, timeoutMin float64) (*v370drv.
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	return d, cfg, out
+	return d, dev, cfg, out
 }
 
 // Long press: start a document; further presses of the same button (short
@@ -191,5 +198,36 @@ func TestPDFButtonMultiPageTimeout(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("document not finished by the timeout")
+	}
+}
+
+// The scanner's light follows the documents: single page → brief off;
+// document → orange with brief off per page; Power → brief off, green.
+// Without the LED patch (buttons pause while orange) the light stays green
+// and orange only flashes.
+func TestButtonLight(t *testing.T) {
+	for _, tc := range []struct {
+		patch bool
+		want  string
+	}{
+		{true, "[off green off orange off orange off green]"},
+		{false, "[orange green green orange green green]"}, // stock: green during documents
+	} {
+		d, dev, cfg, _ := multiPageSetupLED(t, "pdf,pdf:1500ms,pdf,power", 0, tc.patch)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		events := make(chan buttons.Event, 8)
+		ctl := buttons.New(cfg, d.Scan, nil, func(e buttons.Event) { events <- e })
+		ctl.SetIndicator(d)
+		go d.WatchButtons(ctx, 50*time.Millisecond, ctl.OnPress)
+		for _, kind := range []string{buttons.KindSingle, buttons.KindStart, buttons.KindPage, buttons.KindFinish} {
+			if ev := <-events; ev.Err != nil || ev.Kind != kind {
+				t.Fatalf("patch %v: %+v, want %s", tc.patch, ev, kind)
+			}
+		}
+		if got := fmt.Sprint(dev.LEDs()); got != tc.want {
+			t.Errorf("patch %v: light %s, want %s", tc.patch, got, tc.want)
+		}
+		cancel()
+		d.Close()
 	}
 }

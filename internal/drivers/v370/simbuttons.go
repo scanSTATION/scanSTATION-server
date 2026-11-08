@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/scanSTATION/lib-v370/sim/synth"
 	"github.com/scanSTATION/lib-v370/usb"
 	"github.com/scanSTATION/lib-v370/v370"
 )
@@ -59,7 +60,19 @@ func ParseButtons(list string) (*ButtonInjector, error) {
 	return inj, nil
 }
 
-// Wrap returns an opener whose transports answer 1e 85 from the queue.
+// Into queues the presses directly into a synthetic scanner, which models
+// held buttons, memory reads and the LED itself (no transport wrapping).
+func (inj *ButtonInjector) Into(dev *synth.Device) {
+	inj.mu.Lock()
+	defer inj.mu.Unlock()
+	for _, p := range inj.queue {
+		dev.HoldButton(p.button, p.hold)
+	}
+	inj.queue = nil
+}
+
+// Wrap returns an opener whose transports answer 1e 85 from the queue (for
+// replays of recordings, which contain no button traffic).
 func (inj *ButtonInjector) Wrap(open Opener) Opener {
 	return func() (usb.Transport, string, error) {
 		tp, desc, err := open()

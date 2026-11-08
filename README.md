@@ -118,6 +118,22 @@ held (lib-v370 reads the firmware's live button state).
 | document open | **Power**, short | finish: one PDF from all pages |
 | document open | another button | ignored (logged) |
 
+The scanner's LED shows what happens (lib-v370 sets it; the "off" state
+needs lib-v370's in-memory firmware patch, otherwise the other colour
+stands in for it):
+
+| Event | LED |
+|---|---|
+| single-page scan | green → briefly off → green |
+| document started | off → orange (stays while the document is open) |
+| next page | orange → briefly off → orange |
+| finished (Power, timeout, server stop) | briefly off → green |
+| scan failed | 3 quick off/on in the current colour |
+
+`--v370-stock-firmware` uploads the firmware unpatched: the stock firmware
+pauses the buttons while the LED is orange and has no off state, so the
+light then stays green during documents and only flashes orange.
+
 Holding Power ~3 s still switches the scanner off. An open document is
 finished automatically after 10 minutes without a press (and when the
 server stops); `GET /api/status` lists open documents (`button_documents`). The

@@ -91,7 +91,12 @@ func main() {
 		}
 		info := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 		fmt.Printf("Watching scanner buttons (config: %s) — Ctrl-C to stop\n", *cfgPath)
-		if err := bw.WatchButtons(ctx, *interval, buttons.Handler(cfg, b.Scan, info, nil)); err != nil {
+		ctl := buttons.New(cfg, b.Scan, info, nil)
+		if ind, ok := b.(driver.Indicator); ok {
+			ctl.SetIndicator(ind)
+		}
+		defer ctl.Close()
+		if err := bw.WatchButtons(ctx, *interval, ctl.OnPress); err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 		fmt.Println("Stopped.")
