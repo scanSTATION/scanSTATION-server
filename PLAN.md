@@ -131,6 +131,25 @@ Steps:
 7. [ ] P6. Tests (unit, integration against the synthetic scanner, image
        test), docs, real-scanner check.
 
+## Phase B. Short / long button press (requested 2026-11-08)
+
+**Goal:** PDF button short (< threshold, default 1.5 s) = single-page scan;
+long = start a multi-page document and scan page 1. While a document is
+open: short = next page, long = finish (one PDF). Auto-finish after an
+idle timeout. Configurable per button.
+
+Steps:
+1. [x] B1. Read-only test on the scanner (verified: RAM 0x452 = live input,
+       held 1.7 / 4.5 / 2.0 s measured to ±50 ms): `1e 83` type 8 memory read (RAM
+       0x3C3 bit 7 = "wait for release", set while a latched button is
+       held) — can the host measure the press duration?
+2. [x] B2. lib-v370: `ReadMemory`, `HeldButton`, `PressDuration`, tool `v370 mem`; synthetic scanner
+       models the flag; tests.
+3. [x] B3. Server: `buttons.Controller` (single / multi-page), configuration
+       (threshold, timeout, per button), status in the API, integration
+       tests, docs.
+4. [ ] B4. Real-scanner check.
+
 ## Ideas / next
 
 - Generate V370 scan settings instead of replaying recorded profiles (any

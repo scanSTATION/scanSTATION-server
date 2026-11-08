@@ -82,10 +82,17 @@ const (
 	ButtonPower   Button = "power"
 )
 
+// Press is one button press.
+type Press struct {
+	Button Button
+	// Held is how long the button was held; 0 if the driver cannot tell.
+	Held time.Duration
+}
+
 // ButtonWatcher is implemented by drivers that can watch panel buttons.
 type ButtonWatcher interface {
 	// WatchButtons polls until ctx ends and calls onPress for every press.
-	WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, Button)) error
+	WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, Press)) error
 }
 
 // Suspender is implemented by drivers that keep the scanner reserved; the

@@ -58,7 +58,7 @@ func main() {
 	keepPages := flag.Bool("keep-pages", false, "in --multi mode, keep individual page PDFs (otherwise cleaned up)")
 	watch := flag.Bool("watch", false, "watch the scanner buttons and run the configured actions until Ctrl-C")
 	cfgPath := flag.String("config", config.DefaultPath(), "configuration file for --watch (created with defaults if missing)")
-	interval := flag.Duration("button-interval", 200*time.Millisecond, "button polling interval for --watch")
+	interval := flag.Duration("button-interval", 100*time.Millisecond, "button polling interval for --watch")
 	verbose := flag.Bool("verbose", false, "detailed logging (scanner protocol steps)")
 	var bf driver.Flags
 	bf.Register(flag.CommandLine)

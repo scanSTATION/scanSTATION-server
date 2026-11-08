@@ -47,6 +47,44 @@ type ButtonAction struct {
 	Prefix    string  `json:"prefix,omitempty"`     // "{datetime}" → 20261107-143012
 	// Postprocessing overrides the server's postprocessing for this button.
 	Postprocessing *postprocess.Config `json:"postprocessing,omitempty"`
+	// MultiPage: a long press starts a multi-page PDF (short presses add
+	// pages, a long press finishes it). Missing: on for format pdf.
+	MultiPage *bool `json:"multi_page,omitempty"`
+	// LongPressS is the long-press threshold in seconds (default 1.0).
+	LongPressS float64 `json:"long_press_s,omitempty"`
+	// MultiTimeoutMin finishes an open multi-page document after this many
+	// minutes without a press (default 10).
+	MultiTimeoutMin float64 `json:"multi_timeout_min,omitempty"`
+}
+
+// Defaults of the multi-page settings.
+const (
+	DefaultLongPress    = time.Second
+	DefaultMultiTimeout = 10 * time.Minute
+)
+
+// MultiPageEnabled reports whether a long press starts a multi-page PDF.
+func (a ButtonAction) MultiPageEnabled() bool {
+	if a.Format != "pdf" {
+		return false
+	}
+	return a.MultiPage == nil || *a.MultiPage
+}
+
+// LongPress is the long-press threshold.
+func (a ButtonAction) LongPress() time.Duration {
+	if a.LongPressS == 0 {
+		return DefaultLongPress
+	}
+	return time.Duration(a.LongPressS * float64(time.Second))
+}
+
+// MultiTimeout is the idle time after which an open document is finished.
+func (a ButtonAction) MultiTimeout() time.Duration {
+	if a.MultiTimeoutMin == 0 {
+		return DefaultMultiTimeout
+	}
+	return time.Duration(a.MultiTimeoutMin * float64(time.Minute))
 }
 
 // Config is the whole file.
@@ -163,6 +201,15 @@ func (c Config) Validate() error {
 		}
 		if _, err := c.ButtonPipeline(name); err != nil {
 			return fmt.Errorf("button %s: %w", name, err)
+		}
+		if a.MultiPage != nil && *a.MultiPage && a.Format != "pdf" {
+			return fmt.Errorf("button %s: multi_page needs format pdf", name)
+		}
+		if a.LongPressS != 0 && (a.LongPressS < 0.3 || a.LongPressS > 10) {
+			return fmt.Errorf("button %s: long_press_s %.2f out of range (0.3–10)", name, a.LongPressS)
+		}
+		if a.MultiTimeoutMin != 0 && (a.MultiTimeoutMin < 0.05 || a.MultiTimeoutMin > 1440) {
+			return fmt.Errorf("button %s: multi_timeout_min %.2f out of range (0.05–1440)", name, a.MultiTimeoutMin)
 		}
 	}
 	return nil

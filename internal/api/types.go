@@ -6,6 +6,8 @@
 // http.ServeMux patterns.
 package api
 
+import "github.com/scanSTATION/scanSTATION-server/internal/buttons"
+
 // ScanParams holds the parameters for a scan request, accepting string
 // values for format/color/size (as the CLI does) for ease of use from JSON.
 type ScanParams struct {
@@ -116,6 +118,8 @@ type SessionStatusResponse struct {
 type StatusResponse struct {
 	Ready  bool   `json:"ready"`
 	Status string `json:"status"` // "ready" or the scanner's caution message
+	// ButtonDocuments lists multi-page documents being built with a button.
+	ButtonDocuments []buttons.Document `json:"button_documents,omitempty"`
 }
 
 // DeviceListResponse is returned by GET /api/devices.

@@ -195,7 +195,7 @@ func (d *Direct) Close() error {
 // scan started from it blocks further polling, presses during the scan are
 // reported by the scanner afterwards. If the scanner is off or unplugged
 // the watcher retries with back-off and logs the problem once.
-func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, driver.Button)) error {
+func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, driver.Press)) error {
 	if interval < 50*time.Millisecond {
 		return fmt.Errorf("button interval %s too short (min 50ms)", interval)
 	}
@@ -209,12 +209,19 @@ func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPre
 	wait, lastErr := interval, ""
 	for {
 		var b v370.Button
+		var held time.Duration
 		d.mu.Lock()
 		dev, err := d.openLocked(ctx)
 		if err == nil {
 			if b, err = dev.ReadButton(ctx); err != nil {
 				d.doneLocked(dev, true)
 				err = fmt.Errorf("%w: %v", driver.ErrScanner, err)
+			} else if b != v370.ButtonNone && b != v370.ButtonPower {
+				// How long is it held? (Power is reported only at release.)
+				if held, err = dev.PressDuration(ctx, b, pressPoll, pressLimit); err != nil {
+					log.Warn("button watcher: press duration unknown", "button", b.String(), "err", err)
+					held, err = 0, nil
+				}
 			}
 		}
 		d.mu.Unlock()
@@ -234,7 +241,7 @@ func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPre
 			}
 			wait = interval
 			if b != v370.ButtonNone {
-				onPress(ctx, driver.Button(b.String()))
+				onPress(ctx, driver.Press{Button: driver.Button(b.String()), Held: held})
 			}
 		}
 		select {
@@ -244,6 +251,12 @@ func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPre
 		}
 	}
 }
+
+// Press duration measurement: poll interval and upper bound.
+const (
+	pressPoll  = 50 * time.Millisecond
+	pressLimit = 10 * time.Second
+)
 
 // ListDevices implements Backend (opens a session, uploading the firmware
 // after power-on).

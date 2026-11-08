@@ -63,7 +63,7 @@ func (c *Chain) scanWith(ctx context.Context, i int, req scan.ScanRequest) (Resu
 }
 
 // WatchButtons implements ButtonWatcher (first driver that watches buttons).
-func (c *Chain) WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, Button)) error {
+func (c *Chain) WatchButtons(ctx context.Context, interval time.Duration, onPress func(context.Context, Press)) error {
 	for _, b := range c.Backends {
 		if w, ok := b.(ButtonWatcher); ok {
 			return w.WatchButtons(ctx, interval, onPress)

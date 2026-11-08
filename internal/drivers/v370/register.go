@@ -40,7 +40,7 @@ func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
 	fs.BoolVar(&f.keepRaw, "v370-keep-raw", false, "also keep the raw scanner stream (.raw)")
 	fs.BoolVar(&f.vendorStart, "v370-vendor-start", false, "start scans where the vendor app does (≈ 1.2 mm after the glass corner) instead of at the corner")
 	fs.StringVar(&f.simulate, "v370-simulate", "", "testing only: \"synthetic\" (simulated scanner, no hardware) or a recorded trace file to replay")
-	fs.StringVar(&f.simButtons, "v370-simulate-buttons", "", "testing only: comma-separated button presses (pdf,email,printer) the simulator reports")
+	fs.StringVar(&f.simButtons, "v370-simulate-buttons", "", "testing only: comma-separated button presses the simulator reports (pdf,email,printer; pdf:2s = held 2 s)")
 	return f.build
 }
 

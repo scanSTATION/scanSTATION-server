@@ -84,7 +84,11 @@ func (s *Server) getStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, fmt.Sprintf("getting status: %v", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, StatusResponse{Ready: st.Ready, Status: st.Message})
+	resp := StatusResponse{Ready: st.Ready, Status: st.Message}
+	if s.documents != nil {
+		resp.ButtonDocuments = s.documents()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // singleScan responds to POST /api/scan.

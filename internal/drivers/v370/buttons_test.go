@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -59,5 +60,104 @@ func TestPDFButtonScans(t *testing.T) {
 	}
 	if filepath.Ext(ev.Files[1]) != ".json" {
 		t.Fatalf("sidecar %v", ev.Files)
+	}
+}
+
+// pdfPageCount counts page objects in a PDF.
+func pdfPageCount(b []byte) int {
+	return len(regexp.MustCompile(`/Type\s*/Page[^s]`).FindAll(b, -1))
+}
+
+func multiPageSetup(t *testing.T, presses string, timeoutMin float64) (*v370drv.Direct, config.Config, string) {
+	t.Helper()
+	dev, err := synth.New(synth.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inj, err := v370drv.ParseButtons(presses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &v370drv.Direct{Open: inj.Wrap(libv370.SyntheticScanner(dev)), Firmware: synth.DummyFirmware(), WorkDir: t.TempDir()}
+	out := t.TempDir()
+	cfg := config.Default()
+	a := cfg.Buttons[config.ButtonPDF]
+	a.DPI, a.OutputDir, a.MultiTimeoutMin = 100, out, timeoutMin
+	cfg.Buttons[config.ButtonPDF] = a
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return d, cfg, out
+}
+
+// Long press: start a document; short presses add pages; long press
+// finishes it into one PDF. A short press afterwards is a single scan.
+func TestPDFButtonMultiPage(t *testing.T) {
+	d, cfg, out := multiPageSetup(t, "pdf:1500ms,pdf,pdf,pdf:1500ms,pdf", 0)
+	defer d.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	events := make(chan buttons.Event, 8)
+	ctl := buttons.New(cfg, d.Scan, nil, func(e buttons.Event) { events <- e })
+	go d.WatchButtons(ctx, 50*time.Millisecond, ctl.OnPress)
+
+	for i, want := range []struct {
+		kind  string
+		pages int
+	}{{buttons.KindStart, 1}, {buttons.KindPage, 2}, {buttons.KindPage, 3}} {
+		ev := <-events
+		if ev.Err != nil || ev.Kind != want.kind || ev.Pages != want.pages {
+			t.Fatalf("event %d: %+v, want %s with %d pages", i, ev, want.kind, want.pages)
+		}
+		if i == 0 && (ev.Held < time.Second || ev.Held > 2*time.Second) {
+			t.Fatalf("long press measured as %v", ev.Held)
+		}
+		if docs := ctl.Documents(); len(docs) != 1 || docs[0].Pages != want.pages {
+			t.Fatalf("documents %+v", docs)
+		}
+	}
+	fin := <-events
+	if fin.Err != nil || fin.Kind != buttons.KindFinish || fin.Pages != 3 || len(fin.Files) != 2 {
+		t.Fatalf("finish %+v", fin)
+	}
+	pdf, err := os.ReadFile(fin.Files[0])
+	if err != nil || filepath.Dir(fin.Files[0]) != out || pdfPageCount(pdf) != 3 {
+		t.Fatalf("document %s: %v, %d pages", fin.Files[0], err, pdfPageCount(pdf))
+	}
+	side, _ := os.ReadFile(fin.Files[1])
+	if !bytes.Contains(side, []byte(`"pages": 3`)) || !bytes.Contains(side, []byte(`"finished_by": "finish"`)) {
+		t.Fatalf("sidecar %s", side)
+	}
+	if len(ctl.Documents()) != 0 {
+		t.Fatal("document still open")
+	}
+	if single := <-events; single.Err != nil || single.Kind != buttons.KindSingle || len(single.Files) != 2 {
+		t.Fatalf("single after finish %+v", single)
+	}
+	// Only the document, its sidecar and the single scan (+ sidecar) remain.
+	if m, _ := filepath.Glob(filepath.Join(out, "*")); len(m) != 4 {
+		t.Fatalf("output files %v", m)
+	}
+}
+
+// An open document is finished after the idle timeout.
+func TestPDFButtonMultiPageTimeout(t *testing.T) {
+	d, cfg, out := multiPageSetup(t, "pdf:1500ms", 0.05) // 3 s
+	defer d.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	events := make(chan buttons.Event, 4)
+	ctl := buttons.New(cfg, d.Scan, nil, func(e buttons.Event) { events <- e })
+	go d.WatchButtons(ctx, 50*time.Millisecond, ctl.OnPress)
+	if ev := <-events; ev.Err != nil || ev.Kind != buttons.KindStart {
+		t.Fatalf("start %+v", ev)
+	}
+	select {
+	case ev := <-events:
+		if ev.Err != nil || ev.Kind != buttons.KindTimeout || ev.Pages != 1 || filepath.Dir(ev.Files[0]) != out {
+			t.Fatalf("timeout %+v", ev)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("document not finished by the timeout")
 	}
 }

@@ -55,7 +55,7 @@ func main() {
 	outputDir := flag.String("o", "", "output directory for API scans (default: ~/Desktop)")
 	watch := flag.Bool("buttons", true, "watch the scanner buttons and run the configured actions")
 	cfgPath := flag.String("config", config.DefaultPath(), "configuration file (created with defaults if missing)")
-	interval := flag.Duration("button-interval", 200*time.Millisecond, "button polling interval")
+	interval := flag.Duration("button-interval", 100*time.Millisecond, "button polling interval")
 	var bf driver.Flags
 	bf.Register(flag.CommandLine)
 	flag.Parse()
@@ -101,8 +101,11 @@ func main() {
 
 	if bw, ok := b.(driver.ButtonWatcher); ok && *watch {
 		log.Printf("Watching scanner buttons (config: %s)", *cfgPath)
+		ctl := buttons.New(cfg, srv.Scan, logger, nil)
+		srv.SetButtonDocuments(ctl.Documents)
+		defer ctl.Close() // finish open multi-page documents
 		go func() {
-			if err := bw.WatchButtons(ctx, *interval, buttons.Handler(cfg, srv.Scan, logger, nil)); err != nil {
+			if err := bw.WatchButtons(ctx, *interval, ctl.OnPress); err != nil {
 				logger.Error("button watcher stopped", "err", err)
 			}
 		}()

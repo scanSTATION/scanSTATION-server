@@ -123,3 +123,31 @@ func TestPostprocessingConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestMultiPageConfig(t *testing.T) {
+	c, err := load(t, `{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4"},
+		"email":{"action":"scan","format":"png","dpi":300,"size":"a4"}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdf, png := c.Buttons[ButtonPDF], c.Buttons[ButtonEmail]
+	if !pdf.MultiPageEnabled() || png.MultiPageEnabled() || pdf.LongPress() != DefaultLongPress || pdf.MultiTimeout() != DefaultMultiTimeout {
+		t.Fatalf("defaults: %v %v %v %v", pdf.MultiPageEnabled(), png.MultiPageEnabled(), pdf.LongPress(), pdf.MultiTimeout())
+	}
+	c, err = load(t, `{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4","multi_page":false,"long_press_s":2,"multi_timeout_min":30}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := c.Buttons[ButtonPDF]; a.MultiPageEnabled() || a.LongPress() != 2*time.Second || a.MultiTimeout() != 30*time.Minute {
+		t.Fatalf("explicit: %+v", a)
+	}
+	for _, bad := range []string{
+		`{"buttons":{"pdf":{"action":"scan","format":"png","dpi":300,"size":"a4","multi_page":true}}}`,
+		`{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4","long_press_s":0.1}}}`,
+		`{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4","multi_timeout_min":5000}}}`,
+	} {
+		if _, err := load(t, bad); err == nil {
+			t.Errorf("accepted: %s", bad)
+		}
+	}
+}

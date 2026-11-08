@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/scanSTATION/scanSTATION-server/internal/buttons"
 	"github.com/scanSTATION/scanSTATION-server/internal/driver"
 	"github.com/scanSTATION/scanSTATION-server/internal/postprocess"
 	"github.com/scanSTATION/scanSTATION-server/internal/scan"
@@ -21,7 +22,12 @@ type Server struct {
 	scanMu    sync.Mutex // serializes scanner access (USB exclusivity)
 	mux       *http.ServeMux
 	post      *postprocess.Pipeline // default postprocessing of API scans
+	documents func() []buttons.Document
 }
+
+// SetButtonDocuments makes GET /api/status list the button's open
+// multi-page documents.
+func (s *Server) SetButtonDocuments(f func() []buttons.Document) { s.documents = f }
 
 // NewServer creates a new API server that scans with b and stores results
 // in outputDir.

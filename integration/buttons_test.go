@@ -151,3 +151,42 @@ func TestServerButtons(t *testing.T) {
 		t.Errorf("server log:\n%s", log.String())
 	}
 }
+
+// Long press, short press, long press on the server: one PDF with two pages.
+func TestServerButtonsMultiPage(t *testing.T) {
+	out := t.TempDir()
+	cfg := writeButtonConfig(t, out)
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := ln.Addr().String()
+	ln.Close()
+	cmd := exec.Command(filepath.Join(binDir, "scanstation-server"), "--addr", addr, "-o", t.TempDir(),
+		"--driver", "v370", "--v370-simulate", "synthetic",
+		"--v370-simulate-buttons", "pdf:1500ms,pdf,pdf:1500ms", "--config", cfg, "--button-interval", "100ms")
+	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
+	var log bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &log, &log
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		cmd.Process.Signal(syscall.SIGTERM)
+		cmd.Wait()
+	}()
+	if err := waitHealthy("http://"+addr, 30*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	pdf := waitForPDF(t, out, 90*time.Second)
+	b, err := os.ReadFile(pdf)
+	if err != nil || pdfPages(t, b) != 2 {
+		t.Fatalf("document %s: %v\n%s", pdf, err, log.String())
+	}
+	side, err := os.ReadFile(strings.TrimSuffix(pdf, ".pdf") + ".json")
+	if err != nil || !bytes.Contains(side, []byte(`"pages": 2`)) {
+		t.Fatalf("sidecar %s %v", side, err)
+	}
+	for _, want := range []string{"multi-page document started", "multi-page document: page scanned", "multi-page document stored"} {
+		if !strings.Contains(log.String(), want) {
+			t.Errorf("log lacks %q:\n%s", want, log.String())
+		}
+	}
+}
