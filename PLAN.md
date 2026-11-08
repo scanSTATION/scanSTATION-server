@@ -165,7 +165,15 @@ applied in memory to the pinned vendor build (no firmware file distributed).
        `LEDPatch`, `SetLED`, `LEDPatched`, synthetic LED; docs.
 3. [x] F3. Server: `driver.Indicator`, light scheme in the button
        controller, fallback without the patch; tests.
-4. [ ] F4. Real-scanner check (power cycle to load the patched firmware).
+4. [x] F4. Real-scanner check 1 (2026-11-08): patch loaded, buttons work
+       while orange; but the firmware blinks green while busy and `1b 40`'s
+       re-initialisation clears the colour.
+5. [x] F5. Patch extended: busy blink in the selected colour, colour kept
+       across `1b 40`. Server: press reported at registration and tracked
+       while held: off on press, < 1 s single (green blink), 1 s orange flash
+       (release = cancel), 1.5 s document (orange blink), Power: off →
+       finish → green.
+6. [ ] F6. Real-scanner check 2 (power cycle to load the extended patch).
 
 ## Ideas / next
 

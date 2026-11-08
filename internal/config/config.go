@@ -51,8 +51,12 @@ type ButtonAction struct {
 	// the button add pages, a short Power press finishes it). Missing: on
 	// for format pdf.
 	MultiPage *bool `json:"multi_page,omitempty"`
-	// LongPressS is the long-press threshold in seconds (default 1.0).
+	// LongPressS is the long-press threshold in seconds (default 1.0): the
+	// light flashes orange; releasing now cancels.
 	LongPressS float64 `json:"long_press_s,omitempty"`
+	// LongPressConfirmS is how much longer the button must be held after
+	// that to start a multi-page document (default 0.5).
+	LongPressConfirmS float64 `json:"long_press_confirm_s,omitempty"`
 	// MultiTimeoutMin finishes an open multi-page document after this many
 	// minutes without a press (default 10).
 	MultiTimeoutMin float64 `json:"multi_timeout_min,omitempty"`
@@ -61,6 +65,7 @@ type ButtonAction struct {
 // Defaults of the multi-page settings.
 const (
 	DefaultLongPress    = time.Second
+	DefaultLongConfirm  = 500 * time.Millisecond
 	DefaultMultiTimeout = 10 * time.Minute
 )
 
@@ -78,6 +83,14 @@ func (a ButtonAction) LongPress() time.Duration {
 		return DefaultLongPress
 	}
 	return time.Duration(a.LongPressS * float64(time.Second))
+}
+
+// LongPressConfirm is the extra hold time after the threshold.
+func (a ButtonAction) LongPressConfirm() time.Duration {
+	if a.LongPressConfirmS == 0 {
+		return DefaultLongConfirm
+	}
+	return time.Duration(a.LongPressConfirmS * float64(time.Second))
 }
 
 // MultiTimeout is the idle time after which an open document is finished.
@@ -208,6 +221,9 @@ func (c Config) Validate() error {
 		}
 		if a.LongPressS != 0 && (a.LongPressS < 0.3 || a.LongPressS > 10) {
 			return fmt.Errorf("button %s: long_press_s %.2f out of range (0.3–10)", name, a.LongPressS)
+		}
+		if a.LongPressConfirmS != 0 && (a.LongPressConfirmS < 0.1 || a.LongPressConfirmS > 10) {
+			return fmt.Errorf("button %s: long_press_confirm_s %.2f out of range (0.1–10)", name, a.LongPressConfirmS)
 		}
 		if a.MultiTimeoutMin != 0 && (a.MultiTimeoutMin < 0.05 || a.MultiTimeoutMin > 1440) {
 			return fmt.Errorf("button %s: multi_timeout_min %.2f out of range (0.05–1440)", name, a.MultiTimeoutMin)

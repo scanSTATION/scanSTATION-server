@@ -211,19 +211,12 @@ func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPre
 	wait, lastErr := interval, ""
 	for {
 		var b v370.Button
-		var held time.Duration
 		d.mu.Lock()
 		dev, err := d.openLocked(ctx)
 		if err == nil {
 			if b, err = dev.ReadButton(ctx); err != nil {
 				d.doneLocked(dev, true)
 				err = fmt.Errorf("%w: %v", driver.ErrScanner, err)
-			} else if b != v370.ButtonNone && b != v370.ButtonPower {
-				// How long is it held? (Power is reported only at release.)
-				if held, err = dev.PressDuration(ctx, b, pressPoll, pressLimit); err != nil {
-					log.Warn("button watcher: press duration unknown", "button", b.String(), "err", err)
-					held, err = 0, nil
-				}
 			}
 		}
 		d.mu.Unlock()
@@ -243,7 +236,12 @@ func (d *Direct) WatchButtons(ctx context.Context, interval time.Duration, onPre
 			}
 			wait = interval
 			if b != v370.ButtonNone {
-				onPress(ctx, driver.Press{Button: driver.Button(b.String()), Held: held})
+				p := driver.Press{Button: driver.Button(b.String())}
+				if b != v370.ButtonPower { // Power is reported only at its release
+					p.Since = time.Now().Add(-v370.PressDebounce)
+					p.StillHeld = d.stillHeld(b)
+				}
+				onPress(ctx, p)
 			}
 		}
 		select {
@@ -281,11 +279,24 @@ func (d *Direct) LightOffSupported(ctx context.Context) bool {
 	return err == nil && ok
 }
 
-// Press duration measurement: poll interval and upper bound.
-const (
-	pressPoll  = 50 * time.Millisecond
-	pressLimit = 10 * time.Second
-)
+// stillHeld returns a check whether b is still held (the firmware's live
+// button input, read-only memory read).
+func (d *Direct) stillHeld(b v370.Button) func(context.Context) (bool, error) {
+	return func(ctx context.Context) (bool, error) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		dev, err := d.openLocked(ctx)
+		if err != nil {
+			return false, err
+		}
+		held, err := dev.Protocol().HeldButton(ctx)
+		if err != nil {
+			d.doneLocked(dev, true)
+			return false, err
+		}
+		return held == b, nil
+	}
+}
 
 // ListDevices implements Backend (opens a session, uploading the firmware
 // after power-on).

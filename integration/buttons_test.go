@@ -161,7 +161,7 @@ func TestServerButtonsMultiPage(t *testing.T) {
 	ln.Close()
 	cmd := exec.Command(filepath.Join(binDir, "scanstation-server"), "--addr", addr, "-o", t.TempDir(),
 		"--driver", "v370", "--v370-simulate", "synthetic",
-		"--v370-simulate-buttons", "pdf:1500ms,pdf,power", "--config", cfg, "--button-interval", "100ms")
+		"--v370-simulate-buttons", "pdf:2s,pdf,power", "--config", cfg, "--button-interval", "100ms")
 	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
 	var log bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &log, &log

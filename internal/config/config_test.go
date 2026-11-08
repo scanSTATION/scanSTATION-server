@@ -151,3 +151,16 @@ func TestMultiPageConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestLongPressConfirm(t *testing.T) {
+	c, err := load(t, `{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4","long_press_confirm_s":0.8}}}`)
+	if err != nil || c.Buttons[ButtonPDF].LongPressConfirm() != 800*time.Millisecond {
+		t.Fatalf("%v %v", c.Buttons[ButtonPDF].LongPressConfirm(), err)
+	}
+	if a := (ButtonAction{}); a.LongPressConfirm() != DefaultLongConfirm {
+		t.Fatal("default")
+	}
+	if _, err := load(t, `{"buttons":{"pdf":{"action":"scan","format":"pdf","dpi":300,"size":"a4","long_press_confirm_s":20}}}`); err == nil {
+		t.Fatal("out of range accepted")
+	}
+}

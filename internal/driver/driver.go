@@ -85,8 +85,15 @@ const (
 // Press is one button press.
 type Press struct {
 	Button Button
-	// Held is how long the button was held; 0 if the driver cannot tell.
+	// Held is how long the button was held (drivers that report after the
+	// release); 0 if unknown.
 	Held time.Duration
+	// StillHeld, if set, tells whether the button is still held (drivers
+	// that report the press as soon as it is registered). Only valid during
+	// the onPress call.
+	StillHeld func(ctx context.Context) (bool, error)
+	// Since is the estimated start of the press (with StillHeld).
+	Since time.Time
 }
 
 // ButtonWatcher is implemented by drivers that can watch panel buttons.

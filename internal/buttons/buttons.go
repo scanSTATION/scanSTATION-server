@@ -1,28 +1,25 @@
 // Package buttons turns scanner button presses into configured actions:
 // scan and store the file in a configured directory. Every button scanning
 // to PDF (PDF, Email, Printer — per configuration) can also build
-// multi-page documents:
+// multi-page documents. With a driver that reports presses while they are
+// held (driver.Press.StillHeld) and a status light (driver.Indicator):
 //
-//	idle:           short press → single-page scan
-//	                long press  → start a document, scan page 1
-//	document open:  press of the same button → scan the next page
-//	                short press of Power     → finish: one PDF from all pages
+//	press registered:            light off
+//	released before 1 s:         single-page scan (the scanner blinks green)
+//	held 1 s:                    orange flashes once (release now = cancel)
+//	held 1.5 s:                  document started, page 1 scanned
+//	                             (blinks orange; orange while open)
+//	document open, same button:  light off while held; on release the next
+//	                             page (blinks orange)
+//	document open, Power:        light off, document finished, green
+//	scan failed:                 3 quick off/on flashes
 //
 // One document is open at a time; other buttons are ignored meanwhile. An
 // open document is finished automatically after an idle timeout (and when
-// the controller is closed), so no pages are lost.
-//
-// With a driver.Indicator the scanner's light shows what happens:
-//
-//	single-page scan:         green → briefly off → green
-//	document started:         off → orange (stays while the document is open)
-//	next page:                orange → briefly off → orange
-//	finished (Power/timeout): briefly off → green
-//	scan failed:              3 quick off/on in the current colour
-//
-// Without an off state (stock firmware, where buttons also pause while the
-// light is orange) the light stays green during documents and orange only
-// flashes briefly.
+// the controller is closed), so no pages are lost. Without an off state
+// (stock firmware, which also pauses the buttons while orange) the light
+// stays green during documents. Thresholds per button: config
+// long_press_s, long_press_confirm_s.
 package buttons
 
 import (
@@ -55,6 +52,7 @@ const (
 	KindPage    = "page"    // next page scanned
 	KindFinish  = "finish"  // document finished (Power)
 	KindTimeout = "timeout" // document finished after the idle timeout
+	KindCancel  = "cancel"  // released after the long-press flash: nothing scanned
 )
 
 // Event describes what happened for a press (for logs and tests).
@@ -101,10 +99,13 @@ type Controller struct {
 	ind  driver.Indicator
 }
 
-// Light feedback timing.
+// Light feedback timing and press tracking.
 const (
 	blinkTime = 300 * time.Millisecond
 	errorTime = 150 * time.Millisecond
+	flashTime = 200 * time.Millisecond // orange flash at the long-press threshold
+	holdPoll  = 50 * time.Millisecond
+	holdLimit = time.Minute // a button "held" longer is treated as released
 )
 
 // SetIndicator makes the controller show its state on the scanner's light.
@@ -216,7 +217,60 @@ func (c *Controller) emit(ev Event) {
 	}
 }
 
-// OnPress handles one press.
+// outcome of tracking a press.
+type outcome int
+
+const (
+	released  outcome = iota // let go (short, or any press while a document is open)
+	startDoc                 // held past the long-press threshold + confirmation
+	cancelled                // let go between the threshold and the confirmation
+)
+
+// track follows a press until it is released or long enough to start a
+// document (startable: no document open and multi-page enabled), flashing
+// orange at the long-press threshold. It returns how long the button was
+// held. Drivers that cannot report a held button only give Press.Held.
+func (c *Controller) track(ctx context.Context, p driver.Press, a config.ButtonAction, startable bool) (time.Duration, outcome) {
+	long, confirm := a.LongPress(), a.LongPress()+a.LongPressConfirm()
+	if p.StillHeld == nil {
+		if startable && p.Held >= long {
+			return p.Held, startDoc
+		}
+		return p.Held, released
+	}
+	since := p.Since
+	if since.IsZero() {
+		since = time.Now()
+	}
+	flashed := false
+	for {
+		held := time.Since(since)
+		still, err := p.StillHeld(ctx)
+		if err != nil || !still || held >= holdLimit {
+			if flashed {
+				return held, cancelled
+			}
+			return held, released
+		}
+		if startable && !flashed && held >= long {
+			c.light(ctx, driver.LightOrange)
+			time.Sleep(flashTime)
+			c.light(ctx, driver.LightOff)
+			flashed = true
+		}
+		if startable && flashed && held >= confirm {
+			return held, startDoc
+		}
+		select {
+		case <-ctx.Done():
+			return held, released
+		case <-time.After(holdPoll):
+		}
+	}
+}
+
+// OnPress handles one press (called when the press is registered; for
+// drivers with Press.StillHeld while it may still be held).
 func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 	b := string(p.Button)
 	ev := Event{Button: b, Action: config.ActionNone, Held: p.Held}
@@ -229,10 +283,11 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 			c.log.Info("power button pressed (hold it ~3 s to switch the scanner off)")
 			return
 		}
+		c.light(ctx, driver.LightOff)
 		ev = c.finishLocked(open, KindFinish)
 		ev.Held = p.Held
 		delete(c.docs, open.button)
-		c.settle(ctx, driver.LightGreen)
+		c.light(ctx, driver.LightGreen)
 		if ev.Err != nil {
 			c.log.Error("multi-page document failed", "button", open.button, "err", ev.Err)
 			c.flash(ctx, driver.LightGreen, 3, errorTime)
@@ -250,23 +305,31 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 		return
 	}
 	ev.Action = config.ActionScan
-	long := a.MultiPageEnabled() && p.Held >= a.LongPress()
 
 	d := c.docs[b]
+	c.light(ctx, driver.LightOff) // press registered
+	var how outcome
+	ev.Held, how = c.track(ctx, p, a, d == nil && a.MultiPageEnabled())
 	switch {
-	case d == nil && !long:
-		ev.Kind = KindSingle
-		c.flash(ctx, driver.LightGreen, 1, blinkTime)
-		ev.Files, ev.Backend, ev.Err = c.single(ctx, b, a)
+	case d != nil:
+		ev.Kind = KindPage
+		c.light(ctx, c.docLight(ctx))
+		ev.Backend, ev.Err = c.page(ctx, d)
+		ev.Pages = len(d.pages)
 		if ev.Err == nil {
-			c.log.Info("button scan stored", "button", b, "file", ev.Files[0], "backend", ev.Backend)
+			c.log.Info("multi-page document: page scanned", "button", b, "pages", ev.Pages)
 		}
-	case d == nil:
+	case how == cancelled:
+		ev.Kind = KindCancel
+		c.light(ctx, driver.LightGreen)
+		c.log.Info("button released after the long-press signal: cancelled", "button", b, "held", ev.Held)
+	case how == startDoc:
 		ev.Kind = KindStart
 		if d, ev.Err = c.start(b, a); ev.Err != nil {
+			c.light(ctx, driver.LightGreen)
 			break
 		}
-		c.settle(ctx, c.docLight(ctx))
+		c.light(ctx, c.docLight(ctx))
 		ev.Backend, ev.Err = c.page(ctx, d)
 		ev.Pages = len(d.pages)
 		if ev.Err != nil { // no page: no document
@@ -278,12 +341,11 @@ func (c *Controller) OnPress(ctx context.Context, p driver.Press) {
 		c.log.Info("multi-page document started: press "+b+" for the next page, Power (short) to finish",
 			"button", b, "pages", ev.Pages, "auto_finish_after", a.MultiTimeout())
 	default:
-		ev.Kind = KindPage
-		c.flash(ctx, c.docLight(ctx), 1, blinkTime)
-		ev.Backend, ev.Err = c.page(ctx, d)
-		ev.Pages = len(d.pages)
+		ev.Kind = KindSingle
+		c.light(ctx, driver.LightGreen)
+		ev.Files, ev.Backend, ev.Err = c.single(ctx, b, a)
 		if ev.Err == nil {
-			c.log.Info("multi-page document: page scanned", "button", b, "pages", ev.Pages)
+			c.log.Info("button scan stored", "button", b, "file", ev.Files[0], "backend", ev.Backend)
 		}
 	}
 	if ev.Err != nil {

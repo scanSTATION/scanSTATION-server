@@ -101,7 +101,7 @@ func multiPageSetupLED(t *testing.T, presses string, timeoutMin float64, ledPatc
 // or long) add pages; other buttons are ignored; a short Power press
 // finishes it into one PDF. A short press afterwards is a single scan.
 func TestPDFButtonMultiPage(t *testing.T) {
-	d, cfg, out := multiPageSetup(t, "pdf:1500ms,pdf,pdf:1500ms,email,power,pdf", 0)
+	d, cfg, out := multiPageSetup(t, "pdf:2s,pdf,pdf:2s,email,power,pdf", 0)
 	defer d.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -117,8 +117,8 @@ func TestPDFButtonMultiPage(t *testing.T) {
 		if ev.Err != nil || ev.Kind != want.kind || ev.Pages != want.pages {
 			t.Fatalf("event %d: %+v, want %s with %d pages", i, ev, want.kind, want.pages)
 		}
-		if i == 0 && (ev.Held < time.Second || ev.Held > 2*time.Second) {
-			t.Fatalf("long press measured as %v", ev.Held)
+		if i == 0 && (ev.Held < 1500*time.Millisecond || ev.Held > 1800*time.Millisecond) {
+			t.Fatalf("document must start at 1.5 s while held, not %v", ev.Held)
 		}
 		if docs := ctl.Documents(); len(docs) != 1 || docs[0].Pages != want.pages {
 			t.Fatalf("documents %+v", docs)
@@ -153,7 +153,7 @@ func TestPDFButtonMultiPage(t *testing.T) {
 
 // The same works for any button configured to scan to PDF (here Email).
 func TestEmailButtonMultiPage(t *testing.T) {
-	d, cfg, _ := multiPageSetup(t, "email:1500ms,email,power", 0)
+	d, cfg, _ := multiPageSetup(t, "email:2s,email,power", 0)
 	defer d.Close()
 	out := t.TempDir()
 	cfg.Buttons[config.ButtonEmail] = config.ButtonAction{Action: config.ActionScan, Format: "pdf", DPI: 100, Size: "a4",
@@ -181,7 +181,7 @@ func TestEmailButtonMultiPage(t *testing.T) {
 
 // An open document is finished after the idle timeout.
 func TestPDFButtonMultiPageTimeout(t *testing.T) {
-	d, cfg, out := multiPageSetup(t, "pdf:1500ms", 0.05) // 3 s
+	d, cfg, out := multiPageSetup(t, "pdf:2s", 0.05) // 3 s
 	defer d.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -210,10 +210,13 @@ func TestButtonLight(t *testing.T) {
 		patch bool
 		want  string
 	}{
-		{true, "[off green off orange off orange off green]"},
-		{false, "[orange green green orange green green]"}, // stock: green during documents
+		// single: off, green | start: off, flash orange, off, orange |
+		// page: off, orange | Power: off, green
+		{true, "[off green off orange off orange off orange off green]"},
+		// stock: "off" shows green, documents stay green, orange only flashes
+		{false, "[green green green orange green green green green green green]"},
 	} {
-		d, dev, cfg, _ := multiPageSetupLED(t, "pdf,pdf:1500ms,pdf,power", 0, tc.patch)
+		d, dev, cfg, _ := multiPageSetupLED(t, "pdf,pdf:2s,pdf,power", 0, tc.patch)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		events := make(chan buttons.Event, 8)
 		ctl := buttons.New(cfg, d.Scan, nil, func(e buttons.Event) { events <- e })
@@ -229,5 +232,26 @@ func TestButtonLight(t *testing.T) {
 		}
 		cancel()
 		d.Close()
+	}
+}
+
+// Released after the orange flash (1 s) but before 1.5 s: cancelled.
+func TestButtonCancel(t *testing.T) {
+	d, dev, cfg, out := multiPageSetupLED(t, "pdf:1200ms", 0, true)
+	defer d.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	events := make(chan buttons.Event, 2)
+	ctl := buttons.New(cfg, d.Scan, nil, func(e buttons.Event) { events <- e })
+	ctl.SetIndicator(d)
+	go d.WatchButtons(ctx, 50*time.Millisecond, ctl.OnPress)
+	if ev := <-events; ev.Kind != buttons.KindCancel || ev.Err != nil || len(ev.Files) != 0 {
+		t.Fatalf("%+v", ev)
+	}
+	if got := fmt.Sprint(dev.LEDs()); got != "[off orange off green]" {
+		t.Fatalf("light %s", got)
+	}
+	if m, _ := filepath.Glob(filepath.Join(out, "*")); len(m) != 0 || len(ctl.Documents()) != 0 {
+		t.Fatalf("files %v, documents %v", m, ctl.Documents())
 	}
 }
