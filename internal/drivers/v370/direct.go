@@ -86,6 +86,8 @@ type Direct struct {
 	VendorStart bool
 	// StockFirmware uploads the firmware without lib-v370's LED patch.
 	StockFirmware bool
+	// NoTransferBlink keeps the normal busy blink during the image pass.
+	NoTransferBlink bool
 
 	mu        sync.Mutex // one session at a time
 	dev       *libv370.Device
@@ -115,7 +117,7 @@ func (d *Direct) openLocked(ctx context.Context) (*libv370.Device, error) {
 	// The kept device runs without a host session: the scanner's Power button
 	// stays usable (a session blocks it) and buttons can still be read;
 	// scans open a session only for their duration (libv370.Device.Scan).
-	dev, err := libv370.OpenDevice(ctx, libv370.Options{Open: d.Open, Firmware: d.Firmware, Log: d.Log, Now: d.Now, NoSession: d.KeepOpen, VendorStart: d.VendorStart, StockFirmware: d.StockFirmware})
+	dev, err := libv370.OpenDevice(ctx, libv370.Options{Open: d.Open, Firmware: d.Firmware, Log: d.Log, Now: d.Now, NoSession: d.KeepOpen, VendorStart: d.VendorStart, StockFirmware: d.StockFirmware, NoTransferBlink: d.NoTransferBlink})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", driver.ErrScanner, err)
 	}
@@ -417,6 +419,13 @@ func (d *Direct) Scan(ctx context.Context, req scan.ScanRequest) (driver.Result,
 	var identity string
 	err = d.session(ctx, func(dev *libv370.Device) error {
 		identity = dev.Identity().String()
+		if !d.NoTransferBlink {
+			// Fast blinking during the image pass needs to know whether the
+			// LED patch runs (the firmware may have been loaded earlier).
+			if _, err := dev.LEDPatched(ctx); err != nil && d.Log != nil {
+				d.Log.Debug("v370: LED patch check", "err", err)
+			}
+		}
 		var err error
 		if sc, err = dev.Scan(ctx, name); err != nil {
 			return fmt.Errorf("%w: %v", driver.ErrScanner, err)

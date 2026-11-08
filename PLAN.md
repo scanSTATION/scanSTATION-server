@@ -183,3 +183,38 @@ applied in memory to the pinned vendor build (no firmware file distributed).
 - Email / Printer button actions (xdg-email or SMTP; CUPS copy).
 - Run the container as the host user (udev rule giving a group access).
 - Authentication for the REST API.
+
+## Phase G. Faster blinking while image data is transferred (requested 2026-11-08)
+
+**Goal:** while the scanner sends the image to the host (final pass), the
+LED blinks clearly faster than during warm-up, calibration and carriage
+return, in the selected colour (green single page, orange document page).
+
+**Findings (static analysis):**
+- The busy blink toggles when the counter RAM `0x3C5` (one step per 25 ms)
+  is divisible by 20 (`ld.w %r13,0x14` at `0x02001306`, modulo call
+  `0x0200BED2`): 0.5 s on / 0.5 s off for every busy state alike. The
+  firmware does not tell the image pass apart from the other busy states.
+- RAM `0x3C2` bits 0 and 7 are not used by the firmware (bits 1, 2, 4, 5,
+  6 are; bit 3 is ours). No jumps lead into the code to be replaced.
+
+**Design:** the host marks the image pass, the firmware does the timing.
+1. [x] G1. Patch extension (same `led` patch, new pinned SHA-256):
+   - `1e de 80` sets RAM `0x3C2` bit 7 ("fast") and leaves the colour as
+     it is; `1e de 00/01/02` set the colour as before and clear "fast";
+   - busy blink: divisor 5 instead of 20 while bit 7 is set
+     (0.125 s on / 0.125 s off, 4 Hz);
+   - the end-of-job re-initialisation (`1b 40`) clears bit 7 (instead of
+     the current 3 `nop`), so the carriage return blinks slowly again and
+     no state is left over.
+2. [x] G2. lib-v370: `RunProfile` sends `1e de 80` just
+   before the final pass when the patch is known to run (uploaded in this
+   session, or found by `LEDPatched`; the server checks before each scan;
+   no extra command mid-scan); `NoTransferBlink` / `--v370-no-transfer-blink`;
+   synthetic scanner model; tests; docs. Pinned result `28269a04…20b6`.
+3. [x] G3. Real-scanner check (2026-11-08): the scanner accepts `1e de 80`
+   right before the final pass; fast blinking is visible during the image
+   transfer (single page and document page).
+
+**Open questions:**
+- Decided 2026-11-08: 4 Hz (0.125 s); only the final pass blinks fast.

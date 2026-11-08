@@ -227,6 +227,11 @@ func TestButtonLight(t *testing.T) {
 				t.Fatalf("patch %v: %+v, want %s", tc.patch, ev, kind)
 			}
 		}
+		// 3 scans (single, document start, next page); with the patch each
+		// image pass blinks fast.
+		if n, want := dev.FastImagePasses(), map[bool]int{true: 3, false: 0}[tc.patch]; n != want {
+			t.Errorf("patch %v: %d fast image passes, want %d", tc.patch, n, want)
+		}
 		if got := fmt.Sprint(dev.LEDs()); got != tc.want {
 			t.Errorf("patch %v: light %s, want %s", tc.patch, got, tc.want)
 		}

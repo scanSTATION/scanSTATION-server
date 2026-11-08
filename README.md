@@ -129,8 +129,12 @@ Per button in `config.json`: `"multi_page": false` (every press is a
 single scan), `"long_press_s": 1.0`, `"long_press_confirm_s": 0.5`,
 `"multi_timeout_min": 10`.
 
-The off state, orange blinking and buttons working while the LED is orange
-need lib-v370's in-memory firmware patch (applied automatically to the
+During every scan the LED blinks slowly while the scanner warms up,
+calibrates and returns the carriage, and 4 times faster while the image is
+transferred (`--v370-no-transfer-blink` keeps it slow).
+
+The off state, orange blinking, the fast transfer blink and buttons working
+while the LED is orange need lib-v370's in-memory firmware patch (applied automatically to the
 known vendor build). `--v370-stock-firmware` uploads the firmware
 unpatched: then the LED stays green during documents and orange only
 flashes (the stock firmware pauses the buttons while orange). Power is

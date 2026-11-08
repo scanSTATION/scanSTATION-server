@@ -32,6 +32,7 @@ type flags struct {
 	simButtons   string
 	vendorStart  bool
 	stock        bool
+	slowBlink    bool
 }
 
 func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
@@ -40,6 +41,7 @@ func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
 	fs.BoolVar(&f.allowUnknown, "v370-allow-unknown-firmware", false, "accept a firmware file with an unknown SHA-256")
 	fs.BoolVar(&f.keepRaw, "v370-keep-raw", false, "also keep the raw scanner stream (.raw)")
 	fs.BoolVar(&f.vendorStart, "v370-vendor-start", false, "start scans where the vendor app does (≈ 1.2 mm after the glass corner) instead of at the corner")
+	fs.BoolVar(&f.slowBlink, "v370-no-transfer-blink", false, "keep the normal busy blink while the image is transferred (with lib-v370's LED patch it blinks 4 times faster)")
 	fs.BoolVar(&f.stock, "v370-stock-firmware", false, "upload the firmware without lib-v370's LED patch (no LED off state; buttons pause while the LED is orange)")
 	fs.StringVar(&f.simulate, "v370-simulate", "", "testing only: \"synthetic\" (simulated scanner, no hardware) or a recorded trace file to replay")
 	fs.StringVar(&f.simButtons, "v370-simulate-buttons", "", "testing only: comma-separated button presses the simulator reports (pdf,email,printer; pdf:2s = held 2 s)")
@@ -47,7 +49,7 @@ func registerFlags(fs *flag.FlagSet) func(driver.Env) (driver.Backend, error) {
 }
 
 func (f *flags) build(env driver.Env) (driver.Backend, error) {
-	d := &Direct{Open: UsbfsOpener(usbfs.OnlyReal), WorkDir: env.WorkDir, KeepRaw: f.keepRaw, Log: env.Log, VendorStart: f.vendorStart, StockFirmware: f.stock}
+	d := &Direct{Open: UsbfsOpener(usbfs.OnlyReal), WorkDir: env.WorkDir, KeepRaw: f.keepRaw, Log: env.Log, VendorStart: f.vendorStart, StockFirmware: f.stock, NoTransferBlink: f.slowBlink}
 	if f.firmware != "" {
 		fw, err := firmware.Load(f.firmware, f.allowUnknown)
 		if err != nil {
