@@ -149,7 +149,7 @@ Steps:
 3. [x] B3. Server: `buttons.Controller` (single / multi-page), configuration
        (threshold, timeout, per button), status in the API, integration
        tests, docs.
-4. [ ] B4. Real-scanner check.
+4. [x] B4. Real-scanner check (2026-11-08): single page, multi-page start, next page and Power finish with the PDF button.
 
 ## Phase F. LED feedback with a firmware patch (requested 2026-11-08)
 
