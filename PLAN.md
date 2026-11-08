@@ -173,7 +173,7 @@ applied in memory to the pinned vendor build (no firmware file distributed).
        while held: off on press, < 1 s single (green blink), 1 s orange flash
        (release = cancel), 1.5 s document (orange blink), Power: off →
        finish → green.
-6. [ ] F6. Real-scanner check 2 (power cycle to load the extended patch).
+6. [x] F6. Real-scanner check 2 (2026-11-08): all steps as described (single, orange flash, document start with orange blink, next page, Power finish).
 
 ## Ideas / next
 
